@@ -167,11 +167,12 @@ export function createCamera(canvas:HTMLCanvasElement,blocked:(position:T.Vector
     goal.copy(point);
     switch(subject.id){
       case 'carrier':
-        goal.x-=3.25;goal.y+=2.32;goal.z+=3.65;
+        // Follow from the beach side so the snack stand cannot block the shot.
+        goal.x+=2.65;goal.y+=1.84;goal.z+=2.65;
         break;
       case 'customer':
-        goal.x+=2.15;goal.y+=1.86;goal.z+=3.8;
-        target.x-=.65;
+        goal.x-=1.70;goal.y+=1.61;goal.z+=2.34;
+        target.x-=.16;
         break;
       case 'surfer':
         goal.x-=5.1;goal.y+=2;goal.z+=3.4;

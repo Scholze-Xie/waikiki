@@ -197,14 +197,26 @@ export function makePerson(scene: T.Scene, appearance: Appearance) {
   return { root, body, head, arms, legs, hit, focus };
 }
 
-export function shaveIceCup(parent: T.Object3D) {
+export function shaveIceCup(parent: T.Object3D, includeSpoon = true) {
   const cup = new T.Group();
   parent.add(cup);
   const paper = mesh(cup, new T.CylinderGeometry(.083, .053, .105, 14), 0xffedbf, 0, .042);
   paper.castShadow = false;
   sphere(cup, 0xe96863, .083, .054, .082, -.014, .098);
   sphere(cup, 0xf3b64a, .056, .047, .072, .028, .115);
-  const spoon = mesh(cup, new T.CylinderGeometry(.008, .009, .152, 7), 0xffe7bd, .049, .159, -.025);
-  spoon.rotation.z = -.27;
+  if (includeSpoon) {
+    const spoon = mesh(cup, new T.CylinderGeometry(.008, .009, .152, 7), 0xffe7bd, .049, .159, -.025);
+    spoon.rotation.z = -.27;
+  }
   return cup;
+}
+
+export const spoonReach = .15;
+
+export function shaveIceSpoon(hand: T.Group) {
+  const spoon = new T.Group();
+  hand.add(spoon);
+  mesh(spoon, new T.CylinderGeometry(.007, .009, spoonReach, 7), 0xffe7bd, 0, .058);
+  sphere(spoon, 0xffe7bd, .024, .023, .009, 0, .136);
+  return spoon;
 }

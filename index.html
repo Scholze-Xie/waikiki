@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="An interactive morning on Waikīkī Beach.">
+  <link rel="icon" href="data:,">
+  <title>Waikīkī Surf Club</title>
+</head>
+<body>
+  <main id="experience" aria-label="Interactive Waikīkī beach">
+    <div id="view"></div>
+    <header class="masthead">
+      <div class="brand"><span class="sun" aria-hidden="true"></span><span>Waikīkī<br><b>Surf Club</b></span></div>
+      <button id="sound" aria-pressed="false">Sound On</button>
+    </header>
+    <aside class="guide" aria-label="Camera views">
+      <p id="mode" role="status">BEACH OVERVIEW</p>
+      <div class="viewpoint-picker">
+        <label for="viewpoint">Scenic viewpoint</label>
+        <select id="viewpoint">
+          <option value="" disabled>Choose a viewpoint</option>
+          <option value="overview" selected>Beach Overview</option>
+        </select>
+        <span id="bearing" aria-label="Camera heading"></span>
+      </div>
+      <nav aria-label="Choose a view">
+        <button data-follow="carrier">Board carrier</button>
+        <button data-follow="customer">Shave ice customer</button>
+        <button data-follow="surfer">Surfer</button>
+        <button id="snack-view" aria-haspopup="dialog">Hot Dogs &amp; Snacks</button>
+        <button id="fruit-view" aria-haspopup="dialog">Tropical Fruit</button>
+        <button id="shop-view">Inside the Shop</button>
+      </nav>
+      <p id="fruit-receipt" role="status" hidden></p>
+      <p id="snack-receipt" role="status" hidden></p>
+      <p id="hint">Drag for 360-degree views. Scroll to zoom.</p>
+      <button id="back" hidden>Back to Overview <kbd>Esc</kbd></button>
+    </aside>
+    <dialog id="snack-menu" aria-labelledby="snack-title">
+      <header>
+        <h2 id="snack-title">Hot Dogs &amp; Snacks</h2>
+        <form method="dialog"><button autofocus>Close</button></form>
+      </header>
+      <ul id="snack-items" aria-label="Menu"></ul>
+      <footer>
+        <p id="snack-total" role="status"></p>
+        <button id="snack-order" disabled>Place simulated order</button>
+      </footer>
+    </dialog>
+    <dialog id="fruit-menu" aria-labelledby="fruit-title">
+      <header>
+        <h2 id="fruit-title">Tropical Fruit</h2>
+        <form method="dialog"><button autofocus>Close</button></form>
+      </header>
+      <ul id="fruit-items" aria-label="Fruit menu"></ul>
+      <footer>
+        <p id="fruit-total" role="status"></p>
+        <button id="fruit-order" disabled>Place simulated order</button>
+      </footer>
+    </dialog>
+    <div id="dive-pad" role="group" aria-label="Swimming controls" hidden>
+      <button data-swim="KeyW" aria-label="Swim forward">?</button>
+      <button data-swim="KeyA" aria-label="Swim left">?</button>
+      <button data-swim="KeyS" aria-label="Swim backward">?</button>
+      <button data-swim="KeyD" aria-label="Swim right">?</button>
+      <button data-swim="KeyQ">Dive</button>
+      <button data-swim="KeyE">Rise</button>
+    </div>
+    <div id="markers"></div>
+    <p id="error" role="alert" hidden>This scene requires a browser with WebGL 2 enabled.</p>
+  </main>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

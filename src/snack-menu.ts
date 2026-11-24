@@ -10,17 +10,18 @@ const menu=[
 export type SnackFood=typeof menu[number]['food'];
 const dollars=new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0});
 
-export function setupSnackMenu(visit:()=>void,prepare:(foods:SnackFood[])=>void){
-  setupShopMenu('snack',menu,visit,prepare);
+export function setupSnackMenu(visit:()=>void,prepare:(foods:SnackFood[])=>void,onOrder:()=>void){
+  setupShopMenu('snack',menu,visit,prepare,onOrder);
 }
 
 export function setupShopMenu<Food extends string>(prefix:string,menu:readonly {name:string;price:number;food:Food;color?:number}[],
-  visit:()=>void,prepare:(foods:Food[])=>void){
+  visit:()=>void,prepare:(foods:Food[])=>void,onOrder:()=>void){
   const dialog=document.querySelector<HTMLDialogElement>('#'+prefix+'-menu')!;
   const items=document.querySelector<HTMLUListElement>('#'+prefix+'-items')!;
   const total=document.querySelector('#'+prefix+'-total')!;
   const order=document.querySelector<HTMLButtonElement>('#'+prefix+'-order')!;
   const receipt=document.querySelector('#'+prefix+'-receipt')!;
+  const trigger=document.querySelector<HTMLButtonElement>('#'+prefix+'-view')!;
   let orderNumber=0;
   const rows=menu.map(({name,price,food,color})=>{
     const row=document.createElement('li');
@@ -50,7 +51,7 @@ export function setupShopMenu<Food extends string>(prefix:string,menu:readonly {
     plus.addEventListener('click',()=>{item.quantity++;render();});
     return item;
   });
-  function render(confirmation?:string){
+  function render(){
     let quantity=0,amount=0;
     for(const row of rows){
       row.count.textContent=String(row.quantity);
@@ -60,21 +61,23 @@ export function setupShopMenu<Food extends string>(prefix:string,menu:readonly {
       amount+=row.quantity*row.price;
     }
     order.disabled=quantity===0;
-    total.textContent=confirmation??(quantity===0?'Your basket is empty.':quantity+' items · '+dollars.format(amount));
+    const itemsLabel=quantity===1?'item':'items';
+    total.textContent=quantity===0?'Your basket is empty.':quantity+' '+itemsLabel+' · '+dollars.format(amount);
   }
   order.addEventListener('click',()=>{
     if(order.disabled)return;
     const selected=rows.filter(row=>row.quantity>0);
-    const summary=selected.map(row=>row.quantity+' ? '+row.name).join(', ');
+    const summary=selected.map(row=>row.quantity+' × '+row.name).join(', ');
     prepare([...new Set(selected.map(row=>row.food))]);
     const amount=rows.reduce((sum,row)=>sum+row.price*row.quantity,0);
     for(const row of rows)row.quantity=0;
-    const confirmation='Order '+(++orderNumber)+' / '+summary+' / '+dollars.format(amount);
-    render(confirmation);
+    const confirmation='Order '+(++orderNumber)+' · '+summary+' · '+dollars.format(amount);
+    render();
     receipt.textContent=confirmation;
     dialog.close();
+    onOrder();
   });
-  document.querySelector('#'+prefix+'-view')!.addEventListener('click',()=>{
+  trigger.addEventListener('click',()=>{
     visit();
     dialog.showModal();
   });

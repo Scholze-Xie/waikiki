@@ -103,6 +103,7 @@ export function createCamera(canvas:HTMLCanvasElement,blocked:(position:T.Vector
   let swimming=false;
   let defaultFov=48;
   let fromFov=camera.fov;
+  const reducedMotion=matchMedia('(prefers-reduced-motion: reduce)');
 
   function setFov(fov:number){
     if(camera.fov===fov)return;
@@ -199,7 +200,7 @@ export function createCamera(canvas:HTMLCanvasElement,blocked:(position:T.Vector
     }else if(view&&typeof view!=='string'){
       follow(view);
     }
-    transition=Math.min(1,transition+delta*1.08);
+    transition=Math.min(1,transition+delta*(reducedMotion.matches?5:1.08));
     const ease=T.MathUtils.smoothstep(transition,0,1);
     setFov(T.MathUtils.lerp(fromFov,stop?.fieldOfView??defaultFov,ease));
     if(transition<1){
@@ -207,7 +208,7 @@ export function createCamera(canvas:HTMLCanvasElement,blocked:(position:T.Vector
       // Lift crossing shots gently before approaching the scene again.
       const outdoorCrossing=stop===scenicStops.creek||stop===scenicStops.snacks;
       const lift=Math.min(outdoorCrossing?6:4,fromPosition.distanceTo(goal)*.17);
-      if(view!=='dive')camera.position.y+=Math.sin(ease*Math.PI)*lift;
+      if(view!=='dive'&&!reducedMotion.matches)camera.position.y+=Math.sin(ease*Math.PI)*lift;
       look.lerpVectors(fromLook,target,ease);
     }else if(view==='dive'&&stop){
       camera.position.copy(stop.opening);

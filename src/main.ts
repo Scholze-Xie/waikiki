@@ -12,15 +12,31 @@ import {setupShopMenu,setupSnackMenu} from './snack-menu';
 import {BeachSound} from './sound';
 import './style.css';
 
+const guide=document.querySelector<HTMLElement>('.guide')!;
+const loading=document.querySelector<HTMLElement>('#loading')!;
+const errorPanel=document.querySelector<HTMLElement>('#error')!;
+const errorMessage=document.querySelector<HTMLElement>('#error-message')!;
+const soundButton=document.querySelector<HTMLButtonElement>('#sound')!;
+const divePad=document.querySelector<HTMLElement>('#dive-pad')!;
+document.querySelector('#retry')!.addEventListener('click',()=>location.reload());
+
+function showSceneError(message:string){
+  loading.hidden=true;
+  guide.inert=true;
+  divePad.inert=true;
+  soundButton.disabled=true;
+  errorMessage.textContent=message;
+  errorPanel.hidden=false;
+}
+
 function start(){
   const renderer=new T.WebGLRenderer({antialias:true,powerPreference:'high-performance'});
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio,1.65));
   renderer.shadowMap.enabled=true;
   renderer.shadowMap.type=T.PCFShadowMap;
   renderer.outputColorSpace=T.SRGBColorSpace;
   const canvas=renderer.domElement;
   canvas.tabIndex=0;
-  canvas.setAttribute('aria-label','3D beach scene. Arrow keys orbit and tilt the camera.');
+  canvas.setAttribute('aria-label','3D beach scene. Use arrow keys to look around.');
   document.querySelector('#view')!.append(canvas);
   const scene=new T.Scene();
   const sky=new T.Color(0xa5d6d3),deep=new T.Color(0x23666c);
@@ -32,7 +48,10 @@ function start(){
   const sun=new T.DirectionalLight(0xffe6b4,2.35);
   sun.position.set(-15,26,13);
   sun.castShadow=true;
-  sun.shadow.mapSize.set(2048,2048);
+  const compact=matchMedia('(max-width: 620px)');
+  const touch=matchMedia('(pointer: coarse)');
+  const compactPanel=matchMedia('(max-width: 620px), (max-height: 480px)');
+  sun.shadow.mapSize.setScalar(compact.matches?1024:2048);
   Object.assign(sun.shadow.camera,{left:-30,right:25,top:28,bottom:-25,near:1,far:72});
   sun.shadow.normalBias=.03;
   scene.add(sun);
@@ -47,17 +66,18 @@ function start(){
   const mode=document.querySelector<HTMLElement>('#mode')!;
   const hint=document.querySelector<HTMLElement>('#hint')!;
   const back=document.querySelector<HTMLButtonElement>('#back')!;
-  const nav=document.querySelector('nav')!;
+  const nav=document.querySelector<HTMLElement>('#shortcuts')!;
+  const explore=document.querySelector<HTMLButtonElement>('#explore')!;
   const viewpoint=document.querySelector<HTMLSelectElement>('#viewpoint')!;
   const bearing=document.querySelector<HTMLElement>('#bearing')!;
   for(const [id,spot] of Object.entries(scenicStops))viewpoint.add(new Option(spot.label,id));
   const choices=[...nav.querySelectorAll<HTMLButtonElement>('[data-follow]')];
-  const markers=subjects.map(({label,id})=>{
+  const markers=subjects.map(subject=>{
     const marker=document.createElement('span');
     marker.className='marker';
-    marker.dataset.label='Follow '+label;
-    marker.dataset.subject=id;
-    marker.setAttribute('aria-hidden','true');
+    marker.dataset.label='Follow '+subject.label;
+    marker.hidden=true;
+    marker.addEventListener('click',()=>select(subject));
     markerLayer.append(marker);
     return marker;
   });
@@ -66,41 +86,75 @@ function start(){
   const raycaster=new T.Raycaster();
   const hitboxes=subjects.map(s=>s.person.hit);
   let hovered:Subject|null=null;
-  let pressed:{x:number;y:number}|null=null;
-  let pointerPosition:PointerEvent|null=null;
-  function pick(event:PointerEvent){
+  let pressed:{id:number;x:number;y:number}|null=null;
+  let pointerOverCanvas=false;
+  let nextHoverCheck=0;
+  let cursor='';
+  let sceneReady=false;
+  let contextLost=false;
+  const snackReceipt=document.querySelector<HTMLElement>('#snack-receipt')!;
+  const fruitReceipt=document.querySelector<HTMLElement>('#fruit-receipt')!;
+  function setPointer(event:PointerEvent){
     const rect=canvas.getBoundingClientRect();
     pointer.set((event.clientX-rect.left)/rect.width*2-1,1-(event.clientY-rect.top)/rect.height*2);
+  }
+  function pick(){
     raycaster.setFromCamera(pointer,camera);
     const intersection=raycaster.intersectObjects(hitboxes,false)[0];
     return subjects.find(subject=>subject.person.hit===intersection?.object)??null;
   }
-  function select(view:CameraView){
+  function setExpanded(expanded:boolean){
+    explore.setAttribute('aria-expanded',String(expanded));
+  }
+  explore.addEventListener('click',()=>setExpanded(explore.getAttribute('aria-expanded')==='false'));
+
+  function updateHint(){
+    const isTouch=touch.matches||compact.matches;
+    hint.textContent=cameraRig.view==='dive'
+      ? (isTouch?'Drag to look. Hold a swim control to move.':'Drag or use arrows to look. WASD to swim. Q to dive, E to rise.')
+      : (isTouch?'Drag to look around. Pinch to zoom.':'Drag to look around. Scroll to zoom.');
+  }
+  touch.addEventListener('change',updateHint);
+  compact.addEventListener('change',updateHint);
+  updateHint();
+  function select(view:CameraView,restoreFocus=false){
+    if(!sceneReady)return;
+    const focusWasInNav=nav.contains(document.activeElement);
     cameraRig.select(view);
     bearing.hidden=true;
     environment.showShopInterior(view==='shop');
     hovered=null;
-    canvas.style.cursor='';
-    mode.textContent=cameraLabel(view).toUpperCase();
-    document.querySelector<HTMLElement>('#snack-receipt')!.hidden=view!=='snacks';
-    document.querySelector<HTMLElement>('#fruit-receipt')!.hidden=view!=='fruit';
+    markerLayer.hidden=true;
+    mode.textContent=cameraLabel(view);
+    snackReceipt.hidden=view!=='snacks';
+    fruitReceipt.hidden=view!=='fruit';
     const scenic=typeof view==='string'&&view!=='shop';
     viewpoint.value=scenic?view:view===null?'overview':'';
     nav.hidden=view==='shop'||view==='dive'||typeof view==='object'&&view!==null;
-    hint.textContent=view==='dive'?'Drag to look. WASD to swim. Q to dive, E to rise.':'Drag for 360-degree views. Scroll to zoom.';
+    explore.hidden=nav.hidden;
+    if(nav.hidden)setExpanded(false);
+    updateHint();
     hint.hidden=nav.hidden&&view!=='shop'&&view!=='dive';
-    markerLayer.hidden=nav.hidden||view==='dive';
     back.hidden=!view;
+    if(restoreFocus)viewpoint.focus({preventScroll:true});
+    else if(focusWasInNav&&nav.hidden)back.focus({preventScroll:true});
   }
-  canvas.addEventListener('pointermove',(event)=>{pointerPosition=event});
-  canvas.addEventListener('pointerleave',()=>{pointerPosition=null});
-  canvas.addEventListener('pointerdown',(event)=>{
-    if(event.button===0)pressed={x:event.clientX,y:event.clientY};
+  canvas.addEventListener('pointermove',event=>{
+    if(event.pointerType==='touch'||pressed)return;
+    setPointer(event);
+    pointerOverCanvas=true;
   });
-  canvas.addEventListener('pointercancel',()=>{pressed=null});
+  canvas.addEventListener('pointerleave',()=>{pointerOverCanvas=false;hovered=null;});
+  canvas.addEventListener('pointerdown',(event)=>{
+    if(event.button===0&&event.isPrimary)pressed={id:event.pointerId,x:event.clientX,y:event.clientY};
+  });
+  canvas.addEventListener('pointercancel',event=>{if(pressed?.id===event.pointerId)pressed=null;});
+  window.addEventListener('blur',()=>{pressed=null;pointerOverCanvas=false;hovered=null;});
   canvas.addEventListener('pointerup',(event)=>{
-    if(pressed&&event.button===0&&cameraRig.orbiting&&!nav.hidden&&Math.hypot(event.clientX-pressed.x,event.clientY-pressed.y)<6){
-      const picked=pick(event);
+    if(pressed?.id!==event.pointerId)return;
+    if(event.button===0&&cameraRig.orbiting&&!nav.hidden&&Math.hypot(event.clientX-pressed.x,event.clientY-pressed.y)<6){
+      setPointer(event);
+      const picked=pick();
       if(picked)select(picked);
     }
     pressed=null;
@@ -114,42 +168,79 @@ function start(){
     if(id==='overview')select(null);
     else if(Object.hasOwn(scenicStops,id))select(id as keyof typeof scenicStops);
   });
-  setupSnackMenu(()=>{if(cameraRig.view!=='snacks')select('snacks');},environment.prepareSnacks);
-  setupShopMenu('fruit',fruitMenu,()=>{if(cameraRig.view!=='fruit')select('fruit');},environment.prepareFruit);
+  function settleOrder(){
+    if(!compactPanel.matches)return;
+    setExpanded(false);
+    explore.focus({preventScroll:true});
+  }
+  setupSnackMenu(()=>{if(cameraRig.view!=='snacks')select('snacks');},environment.prepareSnacks,settleOrder);
+  setupShopMenu('fruit',fruitMenu,()=>{if(cameraRig.view!=='fruit')select('fruit');},environment.prepareFruit,settleOrder);
   document.querySelector('#shop-view')!.addEventListener('click',()=>select('shop'));
-  back.addEventListener('click',()=>select(null));
+  back.addEventListener('click',()=>select(null,true));
   window.addEventListener('keydown',event=>{
-    if(event.key==='Escape'&&cameraRig.view&&!document.querySelector('dialog[open]'))select(null);
+    if(event.key==='Escape'&&cameraRig.view&&!document.querySelector('dialog[open]'))select(null,true);
   });
   const sound=new BeachSound();
-  const soundButton=document.querySelector<HTMLButtonElement>('#sound')!;
   soundButton.addEventListener('click',async()=>{
     const enabled=soundButton.getAttribute('aria-pressed')==='false';
     soundButton.disabled=true;
     try{
       await sound.setEnabled(enabled);
       soundButton.setAttribute('aria-pressed',String(enabled));
-      soundButton.textContent=enabled?'Sound Off':'Sound On';
+      soundButton.textContent='Beach sound';
     }catch{
-      soundButton.textContent='Sound unavailable';
+      soundButton.textContent='Try sound again';
     }finally{
-      soundButton.disabled=false;
+      soundButton.disabled=!sceneReady;
     }
   });
   const view=canvas.parentElement!;
+  let width=1,height=1,resolution=1,elapsed=0,frames=0;
+  function resizeBuffer(){
+    const limit=Math.sqrt(1_800_000/(width*height));
+    const density=Math.min(window.devicePixelRatio,1.65,limit);
+    renderer.setDrawingBufferSize(width,height,density*resolution);
+  }
   function resize(){
-    const {clientWidth:width,clientHeight:height}=view;
+    width=Math.max(1,view.clientWidth);
+    height=Math.max(1,view.clientHeight);
     cameraRig.resize(width,height);
-    renderer.setSize(width,height,false);
+    resizeBuffer();
   }
   new ResizeObserver(resize).observe(view);
   resize();
   const timer=new T.Timer();
   timer.connect(document);
+  canvas.addEventListener('webglcontextlost',()=>{
+    contextLost=true;
+    sceneReady=false;
+    document.querySelector<HTMLDialogElement>('dialog[open]')?.close();
+    showSceneError('The 3D scene paused while the graphics connection recovers.');
+  });
+  canvas.addEventListener('webglcontextrestored',()=>{
+    contextLost=false;
+    elapsed=0;
+    frames=0;
+    resizeBuffer();
+  });
   let time=3.7;
   renderer.setAnimationLoop(()=>{
     timer.update();
-    const delta=Math.min(timer.getDelta(),.06);
+    if(contextLost||document.hidden)return;
+    const frameTime=timer.getDelta();
+    const delta=Math.min(frameTime,.06);
+    // Adjust pixel density only after sustained slow or fast frames.
+    if(frameTime>0&&frameTime<.15){
+      elapsed+=frameTime;
+      frames++;
+      if(elapsed>=2){
+        const budget=elapsed/frames;
+        const next=budget>.030?Math.max(.78,resolution-.11):budget<.019?Math.min(1,resolution+.055):resolution;
+        if(next!==resolution){resolution=next;resizeBuffer();}
+        frames=0;
+        elapsed=0;
+      }
+    }
     time+=delta;
     environment.update(time);
     moveSea(time);
@@ -166,31 +257,50 @@ function start(){
     fog.density=T.MathUtils.lerp(.012,.078,submerge);
     reef.update(time,underwater,cameraRig.view==='dive'?camera.position:null);
     renderer.render(scene,camera);
-    bearing.hidden=!cameraRig.orbiting;
-    if(cameraRig.orbiting){
+    if(!sceneReady){
+      sceneReady=true;
+      guide.inert=false;
+      divePad.inert=false;
+      soundButton.disabled=false;
+      loading.hidden=true;
+      errorPanel.hidden=true;
+    }
+    const orbiting=cameraRig.orbiting;
+    if(bearing.hidden===orbiting)bearing.hidden=!orbiting;
+    if(orbiting){
       const heading=String(cameraRig.bearing).padStart(3,'0')+'°';
       if(bearing.textContent!==heading)bearing.textContent=heading;
     }
-    if(cameraRig.orbiting&&!nav.hidden){
-      hovered=pointerPosition&&!pressed?pick(pointerPosition):null;
-      canvas.style.cursor=hovered?'pointer':pressed?'grabbing':'grab';
+    const showMarkers=orbiting&&!nav.hidden;
+    if(markerLayer.hidden===showMarkers)markerLayer.hidden=!showMarkers;
+    if(showMarkers){
+      if(pointerOverCanvas&&!pressed&&time>=nextHoverCheck){
+        hovered=pick();
+        nextHoverCheck=time+1/24;
+      }
       markers.forEach((marker,index)=>{
         const subject=subjects[index];
         subject.person.focus.getWorldPosition(projection).project(camera);
-        marker.hidden=projection.z>1||projection.z < -1||Math.abs(projection.x)>.98||Math.abs(projection.y)>.98;
-        marker.style.left=(projection.x*.5+.5)*100+'%';
-        marker.style.top=(.5-projection.y*.5)*100+'%';
-        marker.dataset.hover=String(hovered===subject);
+        const offscreen=projection.z>1||projection.z < -1||Math.abs(projection.x)>.98||Math.abs(projection.y)>.98;
+        if(marker.hidden!==offscreen)marker.hidden=offscreen;
+        if(offscreen)return;
+        const x=(projection.x*.5+.5)*width;
+        const y=(.5-projection.y*.5)*height;
+        marker.style.transform=`translate3d(${x.toFixed(1)}px,${y.toFixed(1)}px,0) translate(-50%,-70%)`;
+        const active=String(hovered===subject);
+        if(marker.dataset.hover!==active)marker.dataset.hover=active;
       });
-    }else if(cameraRig.orbiting){
-      canvas.style.cursor=pressed?'grabbing':'grab';
     }
+    const nextCursor=pressed?'grabbing':showMarkers&&hovered?'pointer':orbiting||cameraRig.view==='dive'?'grab':'';
+    if(nextCursor!==cursor){cursor=nextCursor;canvas.style.cursor=cursor;}
   });
 }
 
-try{
-  start();
-}catch(error){
-  document.querySelector<HTMLElement>('#error')!.hidden=false;
-  console.error(error);
-}
+requestAnimationFrame(()=>requestAnimationFrame(()=>{
+  try{
+    start();
+  }catch(error){
+    showSceneError('Couldn’t start the beach scene. Reload in a browser with WebGL 2 enabled.');
+    console.error(error);
+  }
+}));

@@ -1,7 +1,7 @@
 import * as T from 'three';
 import { woodlandHeight } from './woodland';
 
-const actions=['KeyW','KeyA','KeyS','KeyD','KeyQ','KeyE'];
+const actions=new Set(['KeyW','KeyA','KeyS','KeyD','KeyQ','KeyE','ArrowLeft','ArrowRight','ArrowUp','ArrowDown']);
 
 export function createDiveControls(canvas:HTMLCanvasElement,camera:T.PerspectiveCamera,
   blocked:(position:T.Vector3)=>boolean){
@@ -12,10 +12,12 @@ export function createDiveControls(canvas:HTMLCanvasElement,camera:T.Perspective
   const desired=new T.Vector3(),velocity=new T.Vector3(),candidate=new T.Vector3();
   let active=false;
   let drag:number|null=null;
+  let previousX=0,previousY=0;
+  const touchActions=new Set<string>();
   const clear=()=>{keys.clear();touches.clear();drag=null;velocity.set(0,0,0);};
   window.addEventListener('blur',clear);
   window.addEventListener('keydown',event=>{
-    if(!active||!actions.includes(event.code)||event.target!==canvas)return;
+    if(!active||!actions.has(event.code)||event.target!==canvas)return;
     event.preventDefault();
     keys.add(event.code);
   });
@@ -24,12 +26,10 @@ export function createDiveControls(canvas:HTMLCanvasElement,camera:T.Perspective
   canvas.addEventListener('pointerdown',event=>{
     if(!active||event.button!==0||drag!==null)return;
     drag=event.pointerId;
+    previousX=event.clientX;
+    previousY=event.clientY;
     canvas.focus({preventScroll:true});
     canvas.setPointerCapture(drag);
-  });
-  let previousX=0,previousY=0;
-  canvas.addEventListener('pointerdown',event=>{
-    if(event.pointerId===drag){previousX=event.clientX;previousY=event.clientY;}
   });
   canvas.addEventListener('pointermove',event=>{
     if(event.pointerId!==drag)return;
@@ -68,10 +68,14 @@ export function createDiveControls(canvas:HTMLCanvasElement,camera:T.Perspective
     }
   }
   function update(delta:number){
-    const held=(code:string)=>keys.has(code)||Array.from(touches.values()).includes(code);
+    touchActions.clear();
+    for(const action of touches.values())touchActions.add(action);
+    const held=(code:string)=>keys.has(code)||touchActions.has(code);
     const forward=Number(held('KeyW'))-Number(held('KeyS'));
     const right=Number(held('KeyD'))-Number(held('KeyA'));
     const vertical=Number(held('KeyE'))-Number(held('KeyQ'));
+    rotation.y+=(Number(held('ArrowLeft'))-Number(held('ArrowRight')))*delta*1.65;
+    rotation.x=T.MathUtils.clamp(rotation.x+(Number(held('ArrowUp'))-Number(held('ArrowDown')))*delta*1.65,-1.38,1.38);
     const sin=Math.sin(rotation.y),cos=Math.cos(rotation.y);
     desired.set(right*cos-forward*sin,vertical*.66,-right*sin-forward*cos);
     if(desired.lengthSq()>1)desired.normalize();

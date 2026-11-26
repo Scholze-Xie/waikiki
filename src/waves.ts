@@ -26,8 +26,8 @@ const smooth = (min: number, max: number, value: number) => T.MathUtils.smoothst
 const swashPhase = (z:number,time:number) => time*1.48+z*.23+.34*Math.sin(z*.47);
 
 function channelWaterHeight(inland:number,z:number,time:number){
-  const phase=swashPhase(31,time)+(z-31)*.048-Math.max(0,inland)*.045;
-  return .048-.072*Math.sin(phase)-.0015*Math.max(0,inland)+.007*Math.sin(inland*6.5+z*.84+time*2.9);
+  const phase=swashPhase(31,time*.20)+(z-31)*.048-Math.max(0,inland)*.023;
+  return .048-.072*Math.sin(phase)-.0008*Math.max(0,inland)+.003*Math.sin(inland*6.5+z*.84+time*1.6);
 }
 
 export function waterHeight(x: number, z: number, time: number) {
@@ -79,16 +79,16 @@ export const swashShader = `
 export const channelWaterShader = `
   ${mangroveTideShader}
   float channelWaterPhase(float inland, float z, float time) {
-    return swashPhase(31.,time)+(z-31.)*.048-max(0.,inland)*.045;
+    return swashPhase(31.,time*.20)+(z-31.)*.048-max(0.,inland)*.023;
   }
   float channelWaterHeight(float inland, float z, float time) {
     float phase = channelWaterPhase(inland,z,time);
-    return .048-.072*sin(phase)-.0015*max(0.,inland)+.007*sin(inland*6.5+z*.84+time*2.9);
+    return .048-.072*sin(phase)-.0008*max(0.,inland)+.003*sin(inland*6.5+z*.84+time*1.6);
   }
 `;
 
 function createWaterGeometry() {
-  const inlandSegments = 54;
+  const inlandSegments = 96;
   const originalSegments = 233;
   const segments = inlandSegments + originalSegments;
   const geometry = new T.PlaneGeometry(1, 198, segments, 194);
@@ -99,7 +99,7 @@ function createWaterGeometry() {
     const column = i % (segments + 1);
     const u = (column - inlandSegments) / originalSegments;
     const x = column < inlandSegments
-      ? T.MathUtils.lerp(-30, -13, column / inlandSegments)
+      ? T.MathUtils.lerp(-52, -13, column / inlandSegments)
       : u < .66 ? T.MathUtils.lerp(-13, 31, u / .66) : T.MathUtils.lerp(31, 133, (u - .66) / .34);
     position.setXYZ(i, x, 0, position.getZ(i) - 13);
   }

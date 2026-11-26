@@ -1,6 +1,7 @@
 import {createDiveControls} from './dive-controls';
 import {createWalkControls} from './walk-controls';
 import type {MangroveCollider} from './mangroves';
+import {mangroveCoastShift} from './mangrove-tide';
 import * as T from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { Subject } from './people';
@@ -46,9 +47,13 @@ export const scenicStops = {
     label:'Beach Tide Line',focus:new T.Vector3(-.55,.29,5.35),
     opening:new T.Vector3(2.4,2.13,8.3),minDistance:2.6,maxDistance:13
   },
+  market: {
+    label:'Beach Market',focus:new T.Vector3(-12,1.7,17.5),
+    opening:new T.Vector3(-7,9.4,33),minDistance:7,maxDistance:27
+  },
   mangroves: {
-    label:'Mangrove Grove',focus:new T.Vector3(-12.88,3.57,25.5),
-    opening:new T.Vector3(-7.78,18.33,14.69),minDistance:4,maxDistance:29
+    label:'Mangrove Grove',focus:new T.Vector3(-29,1.4,29+mangroveCoastShift),
+    opening:new T.Vector3(-8,34,11+mangroveCoastShift),minDistance:4,maxDistance:54
   },
   hanauma: {
     label:'Hanauma Bay',focus:new T.Vector3(-14,5.5,hanauma.centerZ),

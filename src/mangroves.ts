@@ -1,19 +1,57 @@
 import * as T from 'three';
 import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
 import {coast} from './waves';
+import {mangroveCoastShift} from './mangrove-tide';
 
 type MangroveSite = {x:number; z:number; scale:number};
 export type MangroveCollider = {from:T.Vector3; to:T.Vector3; radius:number};
 
-// Spread trees across the tidal flat, leaving wider gaps between mature crowns.
-const rows=11,columns=7;
-export const mangroveSites:readonly MangroveSite[]=Array.from({length:rows*columns},(_,i)=>{
-  const column=i%columns,row=Math.floor(i/columns);
-  const z=15.9+row*2.82+.27*Math.sin(i*3.71);
-  const inland=1.05+column*2.83+(row%2)*.78+.27*Math.cos(i*2.63);
-  const scale=.68+.39*Math.sin(i*5.19+.48)**2;
-  return {x:coast(z)-inland,z,scale};
-});
+function scatterMangroves(){
+  const sites:MangroveSite[]=[];
+  let seed=7631;
+  const random=()=>{
+    seed=(Math.imul(seed,1664525)+1013904223)>>>0;
+    return seed/4294967296;
+  };
+  for(let attempt=0;attempt<30000&&sites.length<154;attempt++){
+    const along=15.7+28.7*random();
+    const z=along+mangroveCoastShift;
+    const inland=.75+(38.4+1.1*Math.sin(along*.53))*random();
+    const opening=Math.min(
+      Math.hypot((inland-10)/3.1,(along-26)/2.4),
+      Math.hypot((inland-25)/2.8,(along-36)/3.2),
+      Math.hypot((inland-32)/3.3,(along-21)/2.2),
+    );
+    if(opening<.70||random()<.42*Math.max(0,1.4-opening))continue;
+    const x=coast(z)-inland;
+    const scale=.62+.48*random();
+    if(sites.some(other=>Math.hypot(other.x-x,other.z-z)<1.20+.53*(scale+other.scale)))continue;
+    sites.push({x,z,scale});
+  }
+  return sites;
+}
+
+export const mangroveSites:readonly MangroveSite[]=scatterMangroves();
+
+function pairNearbyTrees(sites:readonly MangroveSite[]){
+  const candidates:{a:MangroveSite;b:MangroveSite;distance:number}[]=[];
+  for(let i=0;i<sites.length;i++){
+    const a=sites[i];
+    for(let j=i+1;j<sites.length;j++){
+      const b=sites[j];
+      const distance=Math.hypot(a.x-b.x,a.z-b.z);
+      if(distance<4.4)candidates.push({a,b,distance});
+    }
+  }
+  candidates.sort((a,b)=>a.distance-b.distance);
+  const pairs=new Map<MangroveSite,MangroveSite>();
+  for(const {a,b} of candidates){
+    if(pairs.has(a)||pairs.has(b))continue;
+    pairs.set(a,b);
+    pairs.set(b,a);
+  }
+  return pairs;
+}
 
 const goldenAngle = 2.399963;
 const bark = new T.Color(0x77604d);
@@ -87,36 +125,36 @@ function rootTube(curve:T.Curve<T.Vector3>,start:number,end:number,segments:numb
 }
 
 function growRoots(stems:T.BufferGeometry[],colliders:MangroveCollider[],trunk:T.Curve<T.Vector3>,site:MangroveSite,
-  sites:readonly MangroveSite[],groundHeight:GroundHeight,seed:number,direction:number){
+  neighbor:MangroveSite|undefined,groundHeight:GroundHeight,seed:number,direction:number){
   const {x,z,scale}=site;
   const mainRoots:{curve:T.CatmullRomCurve3;width:number}[]=[];
-  const neighbor=sites.filter(other=>other!==site&&other.scale>.65)
-    .map(other=>({yaw:Math.atan2(other.z-z,other.x-x),distance:Math.hypot(other.x-x,other.z-z)}))
-    .sort((a,b)=>a.distance-b.distance)[0];
+  const join=neighbor?new T.Vector2((x+neighbor.x)/2,(z+neighbor.z)/2):null;
   const bed=(px:number,pz:number,lift:number)=>new T.Vector3(px,groundHeight(px,pz)+lift*scale,pz);
   const radial=(yaw:number,distance:number,lift:number)=>bed(x+Math.cos(yaw)*distance,z+Math.sin(yaw)*distance,lift);
   const count=scale>.65?5+Math.floor(3*Math.sin(seed*2.38)**2):4;
   for(let i=0;i<count;i++){
-    const towardNeighbor=i===0&&scale>.65&&neighbor&&neighbor.distance<4.8;
+    const connection=i===0?join:null;
     const offset=.29*Math.sin(seed*3.7+i*6.23);
-    const yaw=(towardNeighbor?neighbor.yaw:direction+i*goldenAngle)+offset;
+    const yaw=connection?Math.atan2(connection.y-z,connection.x-x):direction+i*goldenAngle+offset;
     const shape=Math.sin(seed+i*2.58)**2;
-    const length=towardNeighbor
-      ? neighbor.distance*(.57+.13*shape)
-      : scale*(.78+.99*shape+.17*Math.max(0,Math.cos(yaw)));
-    const reach=Math.max(length,.38);
+    const reach=connection?Math.hypot(connection.x-x,connection.y-z)
+      :scale*(.78+.99*shape+.17*Math.max(0,Math.cos(yaw)));
     const turn=.62*Math.sin(i*5.8+seed);
     const shoulder=trunk.getPoint(.21+.40*Math.cos(i*3.9+seed)**2);
     const hump=radial(yaw+turn*.18,reach*.32,.32+.27*shape);
     const ridge=radial(yaw+turn*.52,reach*.61,.096+.095*shape);
-    const curve=new T.CatmullRomCurve3([
+    const curve=new T.CatmullRomCurve3(connection?[
+      shoulder,hump,ridge,radial(yaw+turn*.29,reach*.81,.10),
+      bed(connection.x,connection.y,.055/scale),
+      radial(yaw,reach+scale*.11,-.09),
+    ]:[
       shoulder,hump,ridge,radial(yaw+turn,reach*.77,.045+.055*shape),
       radial(yaw+turn*1.27,reach*.90,i%2===0?-.060:.018),
       radial(yaw+turn*1.19,reach*.97,i%2===0?.015:-.035),
       radial(yaw+turn*1.12,reach*1.035,-.105),
     ]);
     const width=(.078+.077*shape)*scale;
-    stems.push(rootTube(curve,width,.010*scale,17,bark,rootTip,groundHeight,colliders));
+    stems.push(rootTube(curve,width,(connection?.027:.010)*scale,17,bark,rootTip,groundHeight,colliders));
     mainRoots.push({curve,width});
   }
 
@@ -160,7 +198,7 @@ function addLeaf(canopy:CanopyBuffers,stem:T.Vector3,yaw:number,tilt:number,leng
   const {positions,colors,indices}=canopy;
   const first=positions.length/3;
   const x=Math.cos(yaw),z=Math.sin(yaw);
-  const halfWidth=.26*length;
+  const halfWidth=.30*length;
   const outline=[
     [0,0,0,.75], [.31,.78,-.025,.92], [.63,.92,-.020,1.02], [1,0,-.07,1.08],
     [.68,-.91,-.035,.91], [.33,-.67,-.04,.84], [.52,0,.075,1.04],
@@ -229,6 +267,7 @@ export function buildMangroves(scene:T.Scene,sites:readonly MangroveSite[],groun
   const stems:T.BufferGeometry[]=[];
   const colliders:MangroveCollider[]=[];
   const canopy:CanopyBuffers={positions:[],colors:[],indices:[]};
+  const neighbors=pairNearbyTrees(sites);
   for(const site of sites){
     const {x,z,scale}=site;
     const ground=groundHeight(x,z);
@@ -243,27 +282,27 @@ export function buildMangroves(scene:T.Scene,sites:readonly MangroveSite[],groun
     const trunk=new T.CubicBezierCurve3(at(0,-.13,0),at(-leanX*.34,.60,-leanZ*.38),fork,trunkTop);
     stems.push(rootTube(trunk,.16*scale,.036*scale,7,bark,youngWood,undefined,colliders));
 
-    growRoots(stems,colliders,trunk,site,sites,groundHeight,seed,direction);
+    growRoots(stems,colliders,trunk,site,neighbors.get(site),groundHeight,seed,direction);
 
     for(let i=0;i<5;i++){
       const yaw=direction+i*goldenAngle+.26*Math.sin(seed+i*3.71);
-      const spread=.81+.28*Math.sin(seed+i*2.4);
+      const spread=(1.06+.33*Math.sin(seed+i*2.4))*(.96+.13*Math.sin(seed*.71)**2);
       const height=1.96+.31*Math.sin(i*2.3+seed);
       const branchEnd=at(Math.cos(yaw)*spread,height,Math.sin(yaw)*spread);
       const branchBase=trunk.getPoint(.50+.24*Math.sin(seed*.81+i*3.4)**2);
       const branch=new T.QuadraticBezierCurve3(branchBase,
         at(Math.cos(yaw)*spread*.68,height-.31,Math.sin(yaw)*spread*.68),branchEnd);
-      stems.push(rootTube(branch,.059*scale,.013*scale,5,bark,youngWood));
-      const sprayCount=(Math.sin(seed+i*1.9)>.28?5:7)-(scale<.5?2:0);
+      stems.push(rootTube(branch,.081*scale,.018*scale,5,bark,youngWood,undefined,colliders));
+      const sprayCount=Math.sin(seed+i*1.9)>.28?6:8;
       for(let j=0;j<sprayCount;j++){
         const t=j/(sprayCount-1);
         const heading=yaw+(t-.5)*3.9+.46*Math.sin(seed+i+j*4);
-        const start=branch.getPoint(.60+t*.40);
-        const shootScale=scale*(.93+.24*Math.sin(seed*1.2+i+j*1.39));
+        const start=branch.getPoint(.48+t*.52);
+        const shootScale=scale*(1.02+.24*Math.sin(seed*1.2+i+j*1.39));
         canopySprig(canopy,start,heading,shootScale,seed+i*3.1+j*1.77);
       }
     }
-    const crownCount=(Math.sin(seed*1.29)>.1?5:7)-(scale<.5?2:0);
+    const crownCount=Math.sin(seed*1.29)>.1?6:8;
     for(let i=0;i<crownCount;i++){
       const start=trunk.getPoint(.86+.14*(i%3)/2);
       canopySprig(canopy,start,direction+i*goldenAngle,scale*(.92+.22*Math.sin(seed+i*5)),seed+i*1.7);

@@ -8,6 +8,7 @@ import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
 import {channelWaterShader,coast,sandHeight,shoreShader,swashShader} from './waves';
 import {buildWoodland,colorWoodland,woodlandHeight} from './woodland';
 import {buildMangroves,mangroveSites} from './mangroves';
+import {mangroveCoastShift} from './mangrove-tide';
 
 const materials = new Map<number,T.MeshStandardMaterial>();
 export function paint(color: number) {
@@ -61,6 +62,98 @@ function sign(parent:T.Object3D, lines: string[],w:number,h:number,x:number,y:nu
   const map=new T.CanvasTexture(canvas);map.colorSpace=T.SRGBColorSpace;map.anisotropy=4;
   const panel=new T.Mesh(new T.PlaneGeometry(w,h),new T.MeshBasicMaterial({map}));
   panel.position.set(x,y,z);panel.rotation.y=angle;parent.add(panel);
+}
+
+function buildBeachMarket(scene:T.Scene,height:(x:number,z:number)=>number){
+  const cream=0xffe6ad, wood=0x96623e, green=0x528342, yellow=0xf5bf43;
+  const stalls=[
+    ['ISLAND DRINKS','COCONUTS / JUICE / LEMONADE',0x258a81],
+    ['BEACH GRILL','CORN / SHRIMP / FISH TACOS / SHAVE ICE',0xc75334],
+    ['BEACH SUPPLIES','SUNSCREEN / TOWELS / TOYS',0x325a80],
+    ['BEACH RENTALS','UMBRELLAS / CHAIRS / SNORKELS / SUP',0xaf5c39],
+    ['ISLAND GIFTS','LEIS / POSTCARDS / WOVEN BAGS',0x885573],
+  ] as const;
+  stalls.forEach(([name,label,tint],i)=>{
+    const g=new T.Group(), x=-21+i*4.5,z=17.5;
+    g.position.set(x,height(x,z),z);
+    scene.add(g);
+    box(g,wood,3.55,.13,1.9,0,.065,0);
+    box(g,tint,3.24,.83,.11,0,.55,.72);
+    box(g,cream,3.35,.11,.88,0,1.02,.53);
+    for(const px of [-1.57,1.57])for(const pz of [-.76,.72]){
+      box(g,wood,.10,2.58,.10,px,1.34,pz);
+    }
+    for(let stripe=0;stripe<8;stripe++){
+      box(g,stripe%2?cream:tint,.445,.07,2.12,(stripe-3.5)*.444,2.53,0).rotation.x=.10;
+    }
+    sign(g,[name,label],3.08,.51,0,2.31,1.065);
+    if(i===0){
+      for(let j=0;j<5;j++){
+        const px=-1.27+j*.23;
+        sphere(g,green,.112,.104,.106,px,1.18,.62);
+        box(g,cream,.017,.17,.017,px+.03,1.29,.61).rotation.z=-.22;
+      }
+      for(let j=0;j<5;j++){
+        const px=.18+j*.24;
+        mesh(g,new T.CylinderGeometry(.075,.053,.20,9),[0xff9e34,0xedc947,0xffdf8c][j%3],px,1.18,.62);
+        box(g,cream,.016,.105,.016,px,1.32,.62);
+      }
+    }else if(i===1){
+      for(let j=0;j<4;j++){
+        sphere(g,yellow,.082,.067,.223,-1.31+j*.21,1.15,.61);
+        box(g,wood,.024,.024,.44,-.29+j*.16,1.13,.61);
+        for(let k=0;k<3;k++)sphere(g,0xe57e5b,.060,.046,.050,-.29+j*.16,1.17,.48+k*.115);
+      }
+      for(let j=0;j<3;j++){
+        const px=.49+j*.24;
+        sphere(g,0xe5a64a,.104,.07,.065,px,1.16,.57);
+        sphere(g,green,.078,.032,.045,px,1.219,.58);
+      }
+      const dessert=shaveIceCup(g,false);dessert.position.set(1.27,1.08,.61);
+    }else if(i===2){
+      for(let j=0;j<4;j++){
+        const px=-1.29+j*.19;
+        box(g,0xf3ac48,.105,.21,.055,px,1.18,.57);
+        box(g,cream,.088,.035,.054,px,1.07,.57);
+        box(g,0x33779b,.135,.045,.30,.16+j*.15,1.10,.59);
+        box(g,0x56a6a1,.135,.045,.30,.16+j*.15,1.146,.59);
+      }
+      for(const px of [-.43,-.23])sphere(g,0xce6545,.064,.020,.15,px,1.10,.60);
+      mesh(g,new T.CylinderGeometry(.116,.088,.17,9),0xe16b4f,1.14,1.16,.61);
+      sphere(g,yellow,.107,.107,.107,1.40,1.18,.60);
+    }else if(i===3){
+      for(const px of [-1.35,-.98]){
+        box(g,wood,.034,1.19,.034,px,1.13,-.42);
+        mesh(g,new T.ConeGeometry(.27,.26,10),px< -1.2?tint:0x287f87,px,1.76,-.42);
+      }
+      const board=surfboard(g,0x39918e,cream);
+      board.position.set(1.23,1.12,-.57);board.scale.set(.69,.67,.63);
+      for(const px of [-.43,-.02]){
+        box(g,wood,.25,.10,.28,px,.44,-.32);
+        box(g,cream,.25,.43,.06,px,.62,-.44).rotation.x=-.22;
+        for(const side of [-1,1])box(g,wood,.027,.36,.046,px+side*.108,.26,-.33);
+      }
+      for(const px of [.25,.68]){
+        box(g,0x48a9b3,.25,.11,.095,px,1.15,.62);
+        box(g,0x215160,.19,.067,.014,px,1.16,.677);
+        box(g,yellow,.028,.23,.028,px+.15,1.21,.60).rotation.z=-.24;
+      }
+    }else{
+      for(const px of [-1.17,-.59]){
+        for(let j=0;j<12;j++){
+          const a=j*Math.PI/6;
+          sphere(g,j%2?0xfa8458:0xecbce1,.056,.055,.039,px+.17*Math.cos(a),1.49+.22*Math.sin(a),.53);
+        }
+      }
+      for(let j=0;j<4;j++)box(g,[cream,0x4eaaa4,0xcb7650][j%3],.17,.12,.022,-.17+j*.20,1.16,.67).rotation.x=.16;
+      box(g,0xc08a55,.32,.27,.19,1.23,1.21,.51);
+      mesh(g,new T.TorusGeometry(.102,.018,5,12),wood,1.23,1.39,.51);
+      const shirt=0x4a899e;
+      box(g,shirt,.30,.38,.025,.78,1.62,-.35);
+      for(const side of [-1,1])box(g,shirt,.145,.16,.025,.78+side*.191,1.72,-.35).rotation.z=side*.43;
+      sphere(g,cream,.071,.065,.013,.78,1.66,-.332);
+    }
+  });
 }
 function furnishKiosk(g:T.Group,shell:T.Group,timber:number,cream:number,blue:number){
   const teal=0x277e77, counter=0xe6af61, metal=0xb2c6c2;
@@ -518,7 +611,7 @@ export function buildEnvironment(scene:T.Scene){
     const landward=coast(z)-x;
     tint.copy(wet).lerp(dry,T.MathUtils.smoothstep(landward,0,4)).multiplyScalar(.97+.03*Math.sin(i*86.39));
     colorWoodland(tint,x,z,y,surface);
-    if(z>13&&z<47&&landward>-.8&&landward<24){
+    if(z>13+mangroveCoastShift&&z<47+mangroveCoastShift&&landward>-.8&&landward<45){
       let litter=0;
       for(const tree of mangroveSites){
         const distanceSquared=(tree.x-x)**2+(tree.z-z)**2;
@@ -651,6 +744,7 @@ export function buildEnvironment(scene:T.Scene){
   const prepareFruit=buildFruitStand(scene);
   const updateCreek=buildWoodland(scene);
   const terrainHeight=terrainSampler(geo);
+  buildBeachMarket(scene,terrainHeight);
   const mangroveColliders=buildMangroves(scene,mangroveSites,terrainHeight);
   const updateBeachLife=createBeachLife(scene,geo);
   const palms=[[-18,4,6.8],[-20,-3,5.7],[-19.4,-8,7.2],[-9,-7,5.3],[-12,-13,6.9],[-6,-12,6],[-2,-18,5.1],[-10,10,6.5],[-16,14,7.4],[-16,-21,6.2],[-22,-14,6.5],[-4,-24,5.1]]

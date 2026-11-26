@@ -1,0 +1,29 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>石像守卫 · Waikīkī</title><style>body{margin:30px auto;padding:0 18px;max-width:1150px;background:#fdf8ed;color:#1a322d;font:16px/1.65 system-ui}a{color:#17564e}h1,h2,h3{line-height:1.25}nav{display:flex;gap:1.3em;flex-wrap:wrap}canvas{display:block;width:min(100%,540px);height:auto;background:#e8f1e9;border-radius:6px}.planes,.images{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(280px,100%),1fr));gap:16px}.planes section,figure{background:white;margin:0;padding:12px;border-radius:7px}figure img{width:100%;height:auto;display:block}figcaption{margin-top:6px}pre{font:inherit;white-space:pre-wrap}</style></head><body><nav><a href="../场景总图.html">场景总图</a><a href="../11-creek/地点参考.html">上一地点</a><a href="../13-ridge/地点参考.html">下一地点</a></nav><h1>12 石像守卫</h1><h2>效果与结构参考</h2><div class="images"><figure><a href="01-全景.png"><img loading="lazy" src="01-全景.png" alt="01-全景"></a><figcaption>01-全景</figcaption></figure><figure><a href="02-反向或结构近景.png"><img loading="lazy" src="02-反向或结构近景.png" alt="02-反向或结构近景"></a><figcaption>02-反向或结构近景</figcaption></figure><figure><a href="03-材质与环境.png"><img loading="lazy" src="03-材质与环境.png" alt="03-材质与环境"></a><figcaption>03-材质与环境</figcaption></figure></div><h2>现有项目机位</h2><p>箭头从原场景的起始机位指向观察目标。图格以项目坐标为单位，可用于同机位比较。参考图各自的镜头按图中内容估计。</p><div class="planes"><section><h3>XZ 俯视</h3><canvas width="540" height="236" data-axis="2" aria-label="XZ 机位俯视"></canvas></section><section><h3>XY 高程投影</h3><canvas width="540" height="236" data-axis="1" aria-label="XY 机位高程"></canvas></section></div><h2>建模与验收</h2><pre>现有项目观察目标 XYZ (-17.5, 4.05, -11.1)
+现有项目起始机位 XYZ (-9.1, 6.5, -2.7)
+
+用正面确定雕刻和主轮廓，侧面补足厚度、底座和石像与坡面的接触。
+
+图片角度是风格与结构参考。精确几何、地面标高和尺寸采用项目原模型与地形函数。
+
+现有项目 src 下的对应实现
+woodland.ts、stone-material.ts
+两座石像地面锚点 XZ 分别为 (-16.2, -10.4) 和 (-25, -15)，原模型缩放分别为 1.39 和 0.87。</pre><p><strong>验收</strong>　对照两个石像的现有锚点和缩放，绕到侧后方检查底座与坡面接触、石像厚度与雕刻轮廓。</p><script>const [target,camera]=[[-17.5, 4.05, -11.1], [-9.1, 6.5, -2.7]];
+const labels=['X','Y','Z'];
+document.querySelectorAll('canvas').forEach(canvas=>{
+const ctx=canvas.getContext('2d'), axis=Number(canvas.dataset.axis);
+const [tx,ty]=[target[0],target[axis]], [cx,cy]=[camera[0],camera[axis]];
+const scale=Math.min(420/Math.max(8,Math.abs(tx-cx)),150/Math.max(5,Math.abs(ty-cy)));
+const flip=axis===1?-1:1;
+const plot=(x,y)=>[270+(x-(tx+cx)/2)*scale,118+flip*(y-(ty+cy)/2)*scale];
+const [ax,ay]=plot(cx,cy),[bx,by]=plot(tx,ty);
+const step=scale<10?10:scale<28?5:1;
+const midX=(tx+cx)/2,midY=(ty+cy)/2;
+ctx.strokeStyle='#bfd1c6';ctx.fillStyle='#44645d';ctx.font='12px system-ui';
+for(let x=Math.floor((midX-240/scale)/step)*step;x<=midX+240/scale;x+=step){const [px]=plot(x,ty);if(px<30)continue;ctx.beginPath();ctx.moveTo(px,15);ctx.lineTo(px,209);ctx.stroke();ctx.fillText(x,px+2,226);}
+for(let y=Math.floor((midY-85/scale)/step)*step;y<=midY+85/scale;y+=step){const [,py]=plot(tx,y);ctx.beginPath();ctx.moveTo(29,py);ctx.lineTo(520,py);ctx.stroke();ctx.fillText(y,4,py+4);}
+ctx.fillText('X',526,226);ctx.fillText(labels[axis],5,17);
+ctx.strokeStyle='#146964';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(ax,ay);ctx.lineTo(bx,by);ctx.stroke();
+const angle=Math.atan2(by-ay,bx-ax);
+ctx.beginPath();ctx.moveTo(bx-13*Math.cos(angle-.45),by-13*Math.sin(angle-.45));ctx.lineTo(bx,by);ctx.lineTo(bx-13*Math.cos(angle+.45),by-13*Math.sin(angle+.45));ctx.stroke();
+for(const [x,y,label,color] of [[ax,ay,'机位','#a45d36'],[bx,by,'目标','#146964']]){ctx.fillStyle=color;ctx.beginPath();ctx.arc(x,y,5,0,7);ctx.fill();ctx.font='15px system-ui';ctx.fillText(label,x+8,y-8);}
+});</script></body></html>

@@ -1,4 +1,5 @@
 import * as T from 'three';
+import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
 import {box,mesh,sphere} from './environment';
 import {fruitMenu} from './fruit-menu';
 import {sandHeight} from './waves';
@@ -68,30 +69,97 @@ export function buildFruitStand(scene:T.Scene){
       if(kind==='coconut')box(parent,0xc3b375,.039,.018,.038,0,size*2,0);
     }
   }
-  const selection=new Map<Fruit,T.Group>();
-  fruitMenu.forEach(({food,color},i)=>{
-    const x=(i-3)*.62;
-    const z=i%2===0?.94:.72;
-    const crate=box(stand,0xd19557,.57,.11,.42,x,1.235,z);
-    crate.rotation.y=(i%2===0?1:-1)*.035;
-    box(stand,0x683c25,.56,.035,.026,x,1.3,z+.21);
-    for(let j=0;j<4;j++){
-      const specimen=new T.Group();
-      specimen.position.set(x+(j%2-.5)*.235,1.29,z+(Math.floor(j/2)-.5)*.175);
-      specimen.scale.setScalar(.74+.14*Math.sin(i*9+j*4));
-      specimen.rotation.y=i*2.399+j*1.18;
-      stand.add(specimen);
-      fruit(specimen,food,color);
+  function makeFruitGeometry(kind:Fruit,tint:number){
+    const model=new T.Group();
+    fruit(model,kind,tint);
+    model.updateMatrixWorld(true);
+    const parts:T.BufferGeometry[]=[];
+    for(const piece of model.children as T.Mesh<T.BufferGeometry,T.MeshStandardMaterial>[]){
+      const part=(piece.geometry.index?piece.geometry.toNonIndexed():piece.geometry.clone());
+      part.applyMatrix4(piece.matrixWorld);
+      part.deleteAttribute('uv');
+      const colors=new Float32Array(part.getAttribute('position').count*3);
+      for(let i=0;i<colors.length;i+=3)piece.material.color.toArray(colors,i);
+      part.setAttribute('color',new T.BufferAttribute(colors,3));
+      parts.push(part);
     }
-    const selected=new T.Group();
-    selected.position.set(x,1.205,1.35);
-    selected.scale.setScalar(.73);
+    const geometry=mergeGeometries(parts)!;
+    for(const part of parts)part.dispose();
+    geometry.computeBoundingBox();
+    const bounds=geometry.boundingBox!;
+    const center=bounds.getCenter(new T.Vector3());
+    const size=bounds.getSize(new T.Vector3());
+    geometry.translate(-center.x,-bounds.min.y,-center.z);
+    return {geometry,size};
+  }
+
+  const capacity=20;
+  const fruitMaterial=new T.MeshStandardMaterial({vertexColors:true,roughness:.79});
+  const specimen=new T.Object3D();
+  function place(batch:T.InstancedMesh,index:number,x:number,y:number,z:number,scale:number,rotation:number){
+    specimen.position.set(x,y,z);
+    specimen.scale.setScalar(scale);
+    specimen.rotation.y=rotation;
+    specimen.updateMatrix();
+    batch.setMatrixAt(index,specimen.matrix);
+  }
+
+  // The raised bins hold regular stock. The low front shelf is reserved for selected fruit.
+  const shelfZ=1.52;
+  box(stand,wood,4.62,.10,.61,0,1.105,shelfZ);
+  box(stand,0xb9814e,4.50,.025,.55,0,1.167,shelfZ);
+  box(stand,0x78502e,4.62,.07,.038,0,1.16,1.83);
+  for(const x of [-1.87,0,1.87])box(stand,wood,.084,.19,.36,x,.98,1.42).rotation.x=-.39;
+
+  const selection=new Map<Fruit,{batch:T.InstancedMesh;radius:number}>();
+  fruitMenu.forEach(({food,color},i)=>{
+    const x=(i-3)*.64,z=.76;
+    box(stand,0xd19557,.60,.065,.87,x,1.232,z);
+    for(const side of [-1,1]){
+      box(stand,0xa76b40,.033,.115,.87,x+side*.285,1.287,z);
+      box(stand,0x9a5c35,.60,.070,.035,x,1.265,z+side*.418);
+    }
+    const {geometry,size}=makeFruitGeometry(food,color);
+    const radius=Math.hypot(size.x,size.z)/2;
+    const small=food==='passion'||food==='coconut'||food==='mango';
+    const columns=small?3:2,rows=small?3:4;
+    const baseCount=columns*rows;
+    const topCount=small?3:2;
+    const stock=new T.InstancedMesh(geometry,fruitMaterial,baseCount+topCount);
+    for(let j=0;j<baseCount;j++){
+      const column=j%columns,row=Math.floor(j/columns);
+      const scale=(small?.84:.91)+.09*Math.sin(i*9+j*4);
+      place(stock,j,x+(column-(columns-1)/2)*(small?.17:.255),1.266,
+        z+(row-(rows-1)/2)*.191,scale,(i+j)*2.399);
+    }
+    for(let j=0;j<topCount;j++){
+      place(stock,baseCount+j,x+(j%2-.5)*.13,1.267+size.y*.48,
+        z+(j-1)*.18,.88,(i+j)*1.3);
+    }
+    stock.receiveShadow=true;
+    stand.add(stock);
+    const selected=new T.InstancedMesh(geometry,fruitMaterial,capacity);
+    selected.instanceMatrix.setUsage(T.DynamicDrawUsage);
+    selected.count=0;
+    selected.receiveShadow=true;
+    selected.frustumCulled=false;
     stand.add(selected);
-    fruit(selected,food,color);
-    selected.visible=false;
-    selection.set(food,selected);
+    selection.set(food,{batch:selected,radius});
   });
   return (foods:Fruit[])=>{
-    selection.forEach((specimen,food)=>{specimen.visible=foods.includes(food);});
+    for(const {batch} of selection.values())batch.count=0;
+    const columns=Math.min(26,Math.max(1,Math.ceil(foods.length/2)));
+    const rows=Math.ceil(foods.length/columns);
+    const pitchX=Math.min(.32,4.36/columns),pitchZ=Math.min(.24,.52/Math.max(1,rows));
+    foods.forEach((food,i)=>{
+      const {batch,radius}=selection.get(food)!;
+      if(batch.count===capacity)return;
+      const row=Math.floor(i/columns),column=i%columns;
+      const rowCount=Math.min(columns,foods.length-row*columns);
+      const scale=Math.min(1.1,Math.min(pitchX,pitchZ)*.5/radius);
+      place(batch,batch.count++, (column-(rowCount-1)/2)*pitchX,1.18,
+        shelfZ+(row-(rows-1)/2)*pitchZ,scale,i*2.399);
+    });
+    for(const {batch} of selection.values())if(batch.count>0)batch.instanceMatrix.needsUpdate=true;
   };
 }

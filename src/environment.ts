@@ -1,12 +1,13 @@
 import {buildFruitStand} from './fruit-stand';
-import {createBeachLife} from './beach-life';
+import {createBeachLife,terrainSampler} from './beach-life';
 import {makePerson,shaveIceCup} from './character-model';
 import type {SnackFood} from './snack-menu';
-import {coconutBunches,palmTrunk,pinnateFrond} from './palm-geometry';
-import {hanaumaCoastOffset} from './hanauma';
+import {coconutBunches,palmCrownFrond,palmTrunk} from './palm-geometry';
 import * as T from 'three';
-import {coast,sandHeight} from './waves';
+import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
+import {channelWaterShader,coast,sandHeight,shoreShader,swashShader} from './waves';
 import {buildWoodland,colorWoodland,woodlandHeight} from './woodland';
+import {buildMangroves,mangroveSites} from './mangroves';
 
 const materials = new Map<number,T.MeshStandardMaterial>();
 export function paint(color: number) {
@@ -133,6 +134,109 @@ function furnishKiosk(g:T.Group,shell:T.Group,timber:number,cream:number,blue:nu
   shell.add(bulb);
 }
 
+function buildKioskRoof(shell:T.Group){
+  const roofParts:T.BufferGeometry[]=[];
+  const slope=.31;
+  const ridgeZ=-.34;
+  const ridgeY=3.99;
+  const halfSlope=1.25;
+  const addRoofPart=(color:number,w:number,h:number,d:number,x:number,y:number,z:number,angle=0)=>{
+    const geometry=cube.clone().scale(w,h,d).rotateX(angle).translate(x,y,z);
+    const tint=new T.Color(color);
+    const colors=[];
+    for(let i=0;i<geometry.attributes.position.count;i++)colors.push(tint.r,tint.g,tint.b);
+    geometry.setAttribute('color',new T.Float32BufferAttribute(colors,3));
+    roofParts.push(geometry);
+  };
+
+  for(const side of [-1,1]){
+    const angle=side*slope;
+    const centerY=ridgeY-Math.sin(slope)*halfSlope;
+    const centerZ=ridgeZ+side*Math.cos(slope)*halfSlope;
+    const shades=side===1?[0xd04b32,0xdf5739,0xd65034,0xe15c3c]:[0xbd432d,0xcd4b33,0xc0432f,0xd15034];
+    const width=6.96/18;
+    for(let i=0;i<18;i++){
+      const x=-3.48+(i+.5)*width;
+      addRoofPart(shades[(i*7+Math.floor(i/3))%shades.length],width,.10,2.50,x,centerY,centerZ,angle);
+      addRoofPart(0xe56b46,.042,.05,2.51,x-width/2+.021,centerY+.062,centerZ+side*.018,angle);
+    }
+    const eaveZ=ridgeZ+side*Math.cos(slope)*2.50;
+    const eaveY=ridgeY-Math.sin(slope)*2.50;
+    addRoofPart(0x874829,7.02,.18,.12,0,eaveY-.075,eaveZ);
+    addRoofPart(0xeb8050,7.04,.055,.15,0,eaveY+.012,eaveZ);
+    for(const x of [-3.49,3.49]){
+      addRoofPart(0xb45838,.115,.17,2.55,x,centerY-.031,centerZ,angle);
+    }
+  }
+  addRoofPart(0xef8053,7.08,.09,.23,0,ridgeY+.052,ridgeZ);
+  const gableShape=new T.Shape();
+  gableShape.moveTo(-1.96,0);
+  gableShape.lineTo(1.96,0);
+  gableShape.lineTo(0,.638);
+  gableShape.closePath();
+  const gableGeometry=new T.ShapeGeometry(gableShape);
+  for(const side of [-1,1]){
+    const gable=mesh(shell,gableGeometry,0xe2ad73,side*3.09,3.293,ridgeZ);
+    gable.rotation.y=side*Math.PI/2;
+    addRoofPart(0x7d5134,.035,.14,.64,side*3.111,3.51,ridgeZ);
+    for(const y of [3.475,3.51,3.545]){
+      addRoofPart(0xb57a4b,.022,.014,.585,side*3.133,y,ridgeZ);
+    }
+  }
+  const geometry=mergeGeometries(roofParts)!;
+  for(const part of roofParts)part.dispose();
+  const roof=new T.Mesh(geometry,new T.MeshStandardMaterial({vertexColors:true,roughness:.83}));
+  roof.castShadow=true;
+  roof.receiveShadow=true;
+  shell.add(roof);
+}
+
+function buildKioskAwning(shell:T.Group){
+  const positions:number[]=[];
+  const colors:number[]=[];
+  const indices:number[]=[];
+  const segments=12;
+  // Ease into a hanging scalloped valance at the outer edge.
+  const profile=new T.CubicBezierCurve(
+    new T.Vector2(3.11,2.81),new T.Vector2(3.48,2.77),
+    new T.Vector2(4.05,2.67),new T.Vector2(4.10,2.51)
+  );
+  for(let stripe=0;stripe<10;stripe++){
+    const tint=new T.Color(stripe%2?0xffe0a4:0xd94f33);
+    const first=positions.length/3;
+    for(let row=0;row<=segments;row++){
+      const t=row/segments;
+      const edge=profile.getPoint(t);
+      for(let column=0;column<3;column++){
+        const center=column===1;
+        const scallop=center?.08*T.MathUtils.smoothstep(t,.78,1):0;
+        const crown=center?.018*Math.sin(t*Math.PI):0;
+        positions.push(edge.x,edge.y+crown-scallop,-1.275+(stripe+column/2)*.25);
+        colors.push(tint.r,tint.g,tint.b);
+      }
+      if(row===0)continue;
+      for(let column=0;column<2;column++){
+        const a=first+(row-1)*3+column;
+        indices.push(a,a+1,a+3,a+1,a+4,a+3);
+      }
+    }
+  }
+  const geometry=new T.BufferGeometry();
+  geometry.setAttribute('position',new T.Float32BufferAttribute(positions,3));
+  geometry.setAttribute('color',new T.Float32BufferAttribute(colors,3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  const awning=new T.Mesh(geometry,new T.MeshStandardMaterial({vertexColors:true,roughness:.98,side:T.DoubleSide}));
+  awning.castShadow=true;
+  awning.receiveShadow=true;
+  shell.add(awning);
+  box(shell,0x9d5636,.062,.062,2.55,4.00,2.58,-.025);
+  for(const z of [-1.22,1.17]){
+    box(shell,0x9d5636,.96,.048,.048,3.54,2.65,z).rotation.z=-.16;
+    box(shell,0x9d5636,.82,.045,.045,3.48,2.44,z).rotation.z=.48;
+  }
+}
+
 function kiosk(scene:T.Scene){
   const g=new T.Group();g.position.set(-10,.68,-1);scene.add(g);
   const timber=0x85472b, cream=0xffdf9f, red=0xe45136, blue=0x12375a;
@@ -160,20 +264,8 @@ function kiosk(scene:T.Scene){
   box(shell,timber,.19,.13,2.35,3.03,2.72,-.095);
   box(g,red,.48,.115,2.47,3.08,1.20,-.095);
   furnishKiosk(g,shell,timber,cream,blue);
-  for(const side of [-1,1]){
-    const roof=box(shell,side===1?red:0xb63a28,6.94,.18,2.54,0,3.62,-.34+side*1.12);
-    roof.rotation.x=side*.31;
-    for(let i=0;i<20;i++){
-      const seam=box(shell,0xf17d50,.045,.034,2.48,-3.33+i*.35,3.72,-.34+side*1.12);
-      seam.rotation.x=side*.31;
-    }
-  }
-  box(shell,0xed7143,7,.18,.19,0,4,-.34);
-  for(let i=0;i<10;i++){
-    const canopy=box(shell,i%2?cream:red,3.02,.07,.245,3.37,2.72,-1.15+i*.25);
-    canopy.scale.x=1.34;canopy.rotation.z=-.16;
-    box(shell,i%2?cream:red,.05,.22,.245,4.03,2.51,-1.15+i*.25);
-  }
+  buildKioskRoof(shell);
+  buildKioskAwning(shell);
   sign(shell,['WAIKĪKĪ SURF','BOARD RENTALS'],2.92,.47,-.21,3.005,1.686);
   sign(shell,['SHAVE ICE','COLD DRINKS'],1.65,.44,3.108,2.98,.06,Math.PI/2);
   const rack=new T.Group();rack.position.set(-2.3,.1,3.1);g.add(rack);
@@ -210,29 +302,34 @@ type PalmShape={
 function palm(scene:T.Scene,x:number,z:number,height:number,seed:number,shape:PalmShape={}){
   const {lean=.72*Math.sin(seed),bearing=0,controlLean=.31,controlHeight=.54,sweep=0,
     radius=.17,bark=0x9f7958,leaves=12,length:leafLength=1,width=.61,arch:leafArch=1,droop=1,bunches=2}=shape;
-  const root=new T.Group();root.position.set(x,woodlandHeight(x,z),z);
+  const root=new T.Group();root.position.set(x,woodlandHeight(x,z)-.055,z);
   root.rotation.y=bearing;
   scene.add(root);
   const spline=new T.QuadraticBezierCurve3(new T.Vector3(),new T.Vector3(controlLean*lean,height*controlHeight,sweep),new T.Vector3(lean,height,0));
   const trunk=mesh(root,palmTrunk(spline,radius,seed,48),bark);
   trunk.material=new T.MeshStandardMaterial({color:bark,vertexColors:true,roughness:.94});
   const crown=new T.Group();crown.position.copy(spline.getPoint(1));root.add(crown);
-  sphere(crown,0x756134,.25,.29,.25);
+  sphere(crown,0x72703d,.23,.28,.23,0,-.035,0);
   const fruit=new T.Mesh(coconutBunches(seed,bunches),coconutMaterial);
   fruit.castShadow=true;
   fruit.receiveShadow=true;
   crown.add(fruit);
-  for(let k=0;k<leaves;k++){
-    const lower=k>=Math.round(leaves*2/3);
-    const length=((lower?2.12:2.43)+.47*Math.sin(k*8+seed))*leafLength;
-    const arch=(lower?.48:1.02)+.19*Math.sin(k*2.2+seed);
-    const geometry=pinnateFrond(length,width,arch*leafArch,(lower?1.18:.55)*droop,17,k+seed);
-    const color=(lower?[0x48643a,0x65793f]:[0x397646,0x668f45,0x7da34d])[k%(lower?2:3)];
-    const leaf=mesh(crown,geometry,color,0,lower?-.10:.08,0);
-    leaf.rotation.y=k*2.399+seed;
+  const fronds=Array.from({length:leaves},(_,k)=>{
+    const {geometry,color,yaw,origin}=palmCrownFrond(k,leaves,seed,{length:leafLength,width,arch:leafArch,droop,pairs:17});
+    const leaf=mesh(crown,geometry,color,origin.x,origin.y,origin.z);
+    leaf.rotation.set(0,yaw,0,'YXZ');
     leaf.material=new T.MeshStandardMaterial({color,vertexColors:true,side:T.DoubleSide,roughness:.85});
-  }
-  return crown;
+    return leaf;
+  });
+  return (time:number)=>{
+    const phase=x*.22+z*.29;
+    const gust=.68+.32*Math.sin(time*1.28+phase);
+    fronds.forEach((leaf,i)=>{
+      // The pivot stays at the petiole attachment while the tip sweeps a wider arc.
+      leaf.rotation.z=gust*.052*Math.sin(time*1.55+phase+i*.54)+.019*Math.sin(time*3.1+i*1.43+seed);
+      leaf.rotation.x=gust*.039*Math.sin(time*1.2+phase+i*.87);
+    });
+  };
 }
 function buildSnackStand(scene:T.Scene){
   const stand=new T.Group();
@@ -404,87 +501,138 @@ function buildBeachSeating(scene:T.Scene){
   }
 }
 
-function buildMountainRing(scene:T.Scene){
-  const palette:[number,number,number]=[0x3c6957,0x7b8275,0x335448];
-  addMountainRidge(scene,'Coastal mountain ring',
-    [0,8,19,25,12,22,30,18,10,20,26,42,18,15,25,28,15,9,23,37,55,29,24,48,34,0],
-    0,1,61,76,1,palette);
-  addMountainRidge(scene,'Inner coastal peaks',
-    [0,7,14,24,30,14,5,3,5,11,20,26,24,13,5,0],
-    .21,.79,46,60,.63,palette);
-}
-
-function addMountainRidge(scene:T.Scene,name:string,peaks:number[],start:number,end:number,
-  radiusX:number,radiusZ:number,slopeWidth:number,palette:[number,number,number]){
-
-  const slopes=[
-    {offset:-15,lift:0},{offset:-9,lift:.13},{offset:-5,lift:.47},
-    {offset:-2,lift:.76},{offset:0,lift:1},{offset:4,lift:.71},
-    {offset:10,lift:.32},{offset:19,lift:0}
-  ];
-  const steps=(peaks.length-1)*3;
-  const positions:number[]=[],colors:number[]=[],indices:number[]=[];
-  const [base,rock,shadow]=palette.map(color=>new T.Color(color));
-  const tint=new T.Color();
-  for(let i=0;i<=steps;i++){
-    const t=i/steps;
-    const angle=(T.MathUtils.lerp(start,end,t)-.5)*Math.PI;
-    const crestX=-20-radiusX*Math.cos(angle);
-    const crestZ=-15+radiusZ*Math.sin(angle);
-    const coastOffset=hanaumaCoastOffset*T.MathUtils.smoothstep(crestZ,31,47);
-    const radialX=-Math.cos(angle),radialZ=Math.sin(angle);
-    const profile=t*(peaks.length-1);
-    const left=Math.min(Math.floor(profile),peaks.length-2);
-    const height=T.MathUtils.lerp(peaks[left],peaks[left+1],profile-left);
-    const flank=.5+.5*Math.cos(i*1.53);
-    slopes.forEach(({offset,lift},col)=>{
-      const rib=Math.sin(i*2.13+col*.42)*Math.min(1.45,height*.11);
-      const width=offset*slopeWidth*(.91+.15*flank);
-      positions.push(crestX+radialX*width,-.35+height*lift,
-        crestZ+radialZ*width+rib+coastOffset);
-      tint.copy(base).lerp(rock,.15+lift*.41+flank*.17);
-      tint.lerp(shadow,(1-flank)*(.31+.17*lift));
-      colors.push(tint.r,tint.g,tint.b);
-      if(i===0||col===0)return;
-      const d=i*slopes.length+col,a=d-slopes.length-1;
-      indices.push(a,a+1,d,a,d,d-1);
-    });
-  }
-  const geometry=new T.BufferGeometry();
-  geometry.setAttribute('position',new T.Float32BufferAttribute(positions,3));
-  geometry.setAttribute('color',new T.Float32BufferAttribute(colors,3));
-  geometry.setIndex(indices);
-  geometry.computeVertexNormals();
-  const ring=new T.Mesh(geometry,new T.MeshStandardMaterial({
-    vertexColors:true,roughness:1,side:T.DoubleSide
-  }));
-  ring.name=name;
-  scene.add(ring);
-}
-
 export function buildEnvironment(scene:T.Scene){
   const geo=new T.PlaneGeometry(172,212,261,260);
   geo.rotateX(-Math.PI/2);geo.translate(-19,0,-13);
   const vertices=geo.attributes.position;
   const colors=[];
+  const surfaceZones=new Float32Array(vertices.count*2);
+  const surface=new T.Vector2();
   const dry=new T.Color(0xf2ce8c), wet=new T.Color(0xae8556), tint=new T.Color();
+  const mangroveSilt=new T.Color(0x8f8267);
+  const mangroveLitter=new T.Color(0xa29364);
   for(let i=0;i<vertices.count;i++){
     const x=vertices.getX(i),z=vertices.getZ(i);
     const y=woodlandHeight(x,z);
     vertices.setY(i,y);
-    tint.copy(wet).lerp(dry,T.MathUtils.smoothstep(coast(z)-x,0,4)).multiplyScalar(.97+.03*Math.sin(i*86.39));
-    colorWoodland(tint,x,z,y);
+    const landward=coast(z)-x;
+    tint.copy(wet).lerp(dry,T.MathUtils.smoothstep(landward,0,4)).multiplyScalar(.97+.03*Math.sin(i*86.39));
+    colorWoodland(tint,x,z,y,surface);
+    if(z>13&&z<47&&landward>-.8&&landward<24){
+      let litter=0;
+      for(const tree of mangroveSites){
+        const distanceSquared=(tree.x-x)**2+(tree.z-z)**2;
+        litter=Math.max(litter,1-T.MathUtils.smoothstep(distanceSquared,.18*tree.scale**2,4.85*tree.scale**2));
+      }
+      const marsh=litter*(1-T.MathUtils.smoothstep(landward,.72,3.7));
+      tint.lerp(mangroveLitter,litter*.30);
+      tint.lerp(mangroveSilt,marsh*.58);
+      surface.y=Math.max(surface.y,marsh*.78);
+    }
+    surface.toArray(surfaceZones,i*2);
     colors.push(tint.r,tint.g,tint.b);
   }
-  geo.setAttribute('color',new T.Float32BufferAttribute(colors,3));geo.computeVertexNormals();
+  geo.setAttribute('color',new T.Float32BufferAttribute(colors,3));
+  geo.setAttribute('surfaceZones',new T.BufferAttribute(surfaceZones,2));
+  geo.computeVertexNormals();
   const causticTime={value:0};
   const terrainMaterial=new T.MeshStandardMaterial({vertexColors:true,roughness:.99});
   terrainMaterial.onBeforeCompile=shader=>{
     shader.uniforms.causticTime=causticTime;
-    shader.vertexShader='varying vec3 reefFloor;\n'+shader.vertexShader;
+    shader.vertexShader='attribute vec2 surfaceZones; varying vec2 groundZones; varying vec3 reefFloor;\n'+shader.vertexShader;
     shader.vertexShader=shader.vertexShader.replace('#include <begin_vertex>',
-      '#include <begin_vertex>\nreefFloor = position;');
-    shader.fragmentShader='uniform float causticTime; varying vec3 reefFloor;\n'+shader.fragmentShader;
+      '#include <begin_vertex>\nreefFloor = position; groundZones = surfaceZones;');
+    shader.fragmentShader=`
+      uniform float causticTime;
+      varying vec3 reefFloor;
+      varying vec2 groundZones;
+      ${shoreShader}
+      ${swashShader}
+      ${channelWaterShader}
+
+      float groundHash(vec2 cell) {
+        vec3 p = fract(vec3(cell.xyx)*.1031);
+        p += dot(p,p.yzx+33.33);
+        return fract((p.x+p.y)*p.z);
+      }
+      float groundNoise(vec2 point) {
+        vec2 cell = floor(point);
+        vec2 blend = fract(point);
+        blend = blend*blend*(3.-2.*blend);
+        return mix(mix(groundHash(cell),groundHash(cell+vec2(1.,0.)),blend.x),
+          mix(groundHash(cell+vec2(0.,1.)),groundHash(cell+1.),blend.x),blend.y);
+      }
+      vec3 groundNormal(vec3 viewPoint, vec3 surfaceNormal, float height) {
+        vec3 tangentX = dFdx(viewPoint), tangentY = dFdy(viewPoint);
+        vec3 crossX = cross(tangentY,surfaceNormal), crossY = cross(surfaceNormal,tangentX);
+        float det = dot(tangentX,crossX);
+        vec3 gradient = dFdx(height)*crossX+dFdy(height)*crossY;
+        return normalize(max(abs(det),1e-8)*surfaceNormal-sign(det)*gradient);
+      }
+    `+shader.fragmentShader;
+    shader.fragmentShader=shader.fragmentShader.replace('#include <color_fragment>',`
+      #include <color_fragment>
+      float sandDepth = reefFloor.x - shoreAt(reefFloor.z);
+      float tidePhase = swashPhase(reefFloor.z, causticTime);
+      float tideEdge = sandDepth - swashReach(reefFloor.z, causticTime, tidePhase);
+      vec2 ground = reefFloor.xz;
+      float pixelSpan = length(fwidth(ground));
+      float nearGrain = 1.-smoothstep(.013,.057,pixelSpan);
+      float coarse = groundNoise(ground*.51);
+      float patches = groundNoise(ground*3.25+vec2(coarse,-coarse));
+      float wetLimit = sandDepth + .29*(patches-.5);
+      float retainedWetness = smoothstep(-.92,-.28,wetLimit)*(1.-smoothstep(.27,1.18,wetLimit));
+      float freshWetness = smoothstep(-.88,-.47,wetLimit)*(1.-smoothstep(.04,.39,abs(tideEdge)));
+      float wetBand = max(.74*retainedWetness,freshWetness);
+      float channelBank = smoothstep(.29,.77,mangroveChannelMask(-sandDepth,reefFloor.z));
+      float channelWater = channelWaterHeight(-sandDepth,reefFloor.z,causticTime);
+      float wetMud = channelBank*(1.-smoothstep(.035,.29,reefFloor.y-channelWater));
+      float dampness = max(max(wetBand,wetMud),groundZones.y);
+      float land = 1.-smoothstep(.3,3.4,sandDepth);
+      float soil = groundZones.x;
+      float grains = groundNoise(ground*38. + vec2(8.1,3.7));
+      float darkGrains = smoothstep(.56,.86,grains);
+      float paleGrains = 1.-smoothstep(.18,.42,grains);
+      float breaks = smoothstep(.19,.69,patches);
+      float ripplePhase = sandDepth*17.5 + 1.64*sin(ground.y*.86) + coarse*5.4 + patches*.54;
+      float rippleCrests = smoothstep(.16,.93,.5+.5*sin(ripplePhase));
+      float dryRipples = rippleCrests*(1.-dampness)*(1.-soil)*smoothstep(.27,.72,coarse);
+      dryRipples *= smoothstep(-12.,-6.,sandDepth)*(1.-smoothstep(.24,1.4,fwidth(ripplePhase)));
+
+      // A few small leaf shapes break up the forest floor between the taller plants.
+      vec2 litterGrid = ground*4.6;
+      vec2 litterCell = floor(litterGrid);
+      float litterSeed = groundHash(litterCell+vec2(6.3,2.7));
+      float angle = groundHash(litterCell+vec2(17.1,9.2))*6.28318;
+      vec2 leafAxis = vec2(cos(angle),sin(angle));
+      vec2 leafOffset = fract(litterGrid)-.5-(litterSeed-.5)*vec2(.21,-.19);
+      vec2 leafPoint = vec2(dot(leafOffset,leafAxis),dot(leafOffset,vec2(-leafAxis.y,leafAxis.x)));
+      float leafEdge = length(leafPoint/vec2(.27 + .09*litterSeed,.079 + .029*litterSeed));
+      float litter = (1.-smoothstep(.70,1.1,leafEdge))*step(.57,litterSeed)*soil;
+      litter *= smoothstep(.28,.73,patches)*(1.-smoothstep(.044,.125,pixelSpan));
+      litter *= 1.-.76*max(wetMud,groundZones.y);
+
+      vec3 sandShade = mix(vec3(.93,.88,.79),vec3(1.07,1.05,1.03),.62*coarse+.38*patches);
+      vec3 soilShade = mix(vec3(.68,.67,.59),vec3(1.16,1.12,.91),breaks);
+      vec3 surfaceShade = mix(sandShade,soilShade,soil);
+      float grainContrast = mix(.56,1.,patches)*(1.-.53*dampness);
+      surfaceShade *= 1.+.072*dryRipples+nearGrain*grainContrast*(.070*paleGrains-.16*darkGrains);
+      surfaceShade = mix(surfaceShade,surfaceShade*mix(vec3(.69,.57,.39),vec3(1.28,1.07,.62),litterSeed),litter*.69);
+      surfaceShade = mix(surfaceShade,surfaceShade*vec3(.69,.70,.68),wetBand);
+      surfaceShade = mix(surfaceShade,surfaceShade*vec3(.71,.70,.62),wetMud);
+      diffuseColor.rgb *= mix(vec3(1.),surfaceShade,land);
+      float microHeight = land*(.0064*dryRipples + .0027*grains*nearGrain*grainContrast
+        + (.018*patches+.004*litter)*soil);
+      microHeight *= mix(1.,.40,dampness);
+    `);
+    shader.fragmentShader=shader.fragmentShader.replace('#include <roughnessmap_fragment>',`
+      #include <roughnessmap_fragment>
+      roughnessFactor = mix(roughnessFactor*(1.-.09*(1.-grains)*nearGrain),mix(.59,.72,soil),dampness);
+    `);
+    shader.fragmentShader=shader.fragmentShader.replace('#include <normal_fragment_maps>',`
+      #include <normal_fragment_maps>
+      normal = groundNormal(-vViewPosition,normal,microHeight);
+    `);
     shader.fragmentShader=shader.fragmentShader.replace('#include <emissivemap_fragment>',`
       #include <emissivemap_fragment>
       float reefMask=smoothstep(11.,17.,reefFloor.x)*(1.-smoothstep(34.,40.,reefFloor.x));
@@ -502,7 +650,9 @@ export function buildEnvironment(scene:T.Scene){
   buildBeachSeating(scene);
   const prepareFruit=buildFruitStand(scene);
   const updateCreek=buildWoodland(scene);
-  const updateBeachLife=createBeachLife(scene);
+  const terrainHeight=terrainSampler(geo);
+  const mangroveColliders=buildMangroves(scene,mangroveSites,terrainHeight);
+  const updateBeachLife=createBeachLife(scene,geo);
   const palms=[[-18,4,6.8],[-20,-3,5.7],[-19.4,-8,7.2],[-9,-7,5.3],[-12,-13,6.9],[-6,-12,6],[-2,-18,5.1],[-10,10,6.5],[-16,14,7.4],[-16,-21,6.2],[-22,-14,6.5],[-4,-24,5.1]]
     .map(([x,z,h],i)=>palm(scene,x,z,h,i+.3));
   const shorelinePalms:{z:number;height:number;shape:PalmShape}[]=[
@@ -517,7 +667,6 @@ export function buildEnvironment(scene:T.Scene){
     // Equal horizontal reach and vertical rise give a 45-degree overall lean.
     palms.push(palm(scene,coast(z)-3.25,z,height,13.5+i,{...shape,lean:height}));
   });
-  buildMountainRing(scene);
   for(let i=0;i<9;i++){
     const x=-53+i*13,z=-99-Math.sin(i*52)*12,y=30+Math.sin(i*4)*4;
     for(let j=0;j<4;j++){
@@ -530,10 +679,7 @@ export function buildEnvironment(scene:T.Scene){
     updateCreek(time);
     updateBeachLife(time);
     updateStand(time);
-    palms.forEach((crown,i)=>{
-      crown.rotation.x=.04*Math.sin(time*1.45+i);
-      crown.rotation.z=.077*Math.sin(time*1.17+i*1.6);
-    });
+    palms.forEach(updatePalm=>updatePalm(time));
   };
-  return {update,showShopInterior,prepareSnacks,prepareFruit};
+  return {update,showShopInterior,prepareSnacks,prepareFruit,terrainHeight,mangroveColliders};
 }

@@ -1,6 +1,10 @@
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {clone} from 'three/addons/utils/SkeletonUtils.js';
+import clownfishUrl from './assets/clownfish.glb?url';
 import * as T from 'three';
 import { woodlandHeight } from './woodland';
 import { waterHeight } from './waves';
+import {createStoneMaterial} from './stone-material';
 
 function channel(x:number){
   return -8+.60*Math.sin((x-23)*.24);
@@ -9,10 +13,11 @@ function channel(x:number){
 export function createReef(scene:T.Scene){
   const reef=new T.Group();
   scene.add(reef);
-  const rockMaterial=new T.MeshStandardMaterial({roughness:.94,flatShading:true});
+  const rockMaterial=createStoneMaterial({roughness:.88,flatShading:true},1.4);
+  const coralMaterial=new T.MeshStandardMaterial({roughness:.94,flatShading:true});
   const colonies=72, stems=5;
   const rocks=new T.InstancedMesh(new T.IcosahedronGeometry(1,1),rockMaterial,colonies);
-  const coral=new T.InstancedMesh(new T.CylinderGeometry(.58,1,1,6),rockMaterial,colonies*stems*2);
+  const coral=new T.InstancedMesh(new T.CylinderGeometry(.58,1,1,6),coralMaterial,colonies*stems*2);
   const model=new T.Object3D();
   const color=new T.Color();
   const up=new T.Vector3(0,1,0);
@@ -64,46 +69,62 @@ export function createReef(scene:T.Scene){
       && (position.x-x)**2+(position.z-z)**2<(radius+.20)**2);
   }
 
-  const fishCount=30;
-  const fishMaterial=new T.MeshStandardMaterial({roughness:.52});
-  const bodies=new T.InstancedMesh(new T.SphereGeometry(1,10,6),fishMaterial,fishCount);
-  const tails=new T.InstancedMesh(new T.ConeGeometry(1,1,3),fishMaterial,fishCount);
-  const eyeGeometry=new T.SphereGeometry(1,8,6);
-  const irises=new T.InstancedMesh(eyeGeometry,new T.MeshBasicMaterial({color:0xf4da91}),fishCount*2);
-  const pupils=new T.InstancedMesh(eyeGeometry,new T.MeshBasicMaterial({color:0x121e26}),fishCount*2);
-  const fishOrientation=new T.Quaternion();
-  reef.add(bodies,tails,irises,pupils);
-  const fishColors=[0xecc768,0x6dc7bd,0xf7e9ae,0x5e9bb8,0xf29560];
-  for(let i=0;i<fishCount;i++){
-    bodies.setColorAt(i,color.set(fishColors[Math.floor(i/6)]));
-    tails.setColorAt(i,color.multiplyScalar(.78));
-  }
+  const schoolSize=7,fishCount=42;
   const bubbles=new T.InstancedMesh(new T.IcosahedronGeometry(1,1),
     new T.MeshBasicMaterial({color:0xc1eee6,transparent:true,opacity:.36,depthWrite:false}),27);
   reef.add(bubbles);
-  for(const object of [bodies,tails,irises,pupils,bubbles]){
-    object.frustumCulled=false;
-    object.instanceMatrix.setUsage(T.DynamicDrawUsage);
-  }
+  bubbles.frustumCulled=false;
+  bubbles.instanceMatrix.setUsage(T.DynamicDrawUsage);
   const fishPositions=Array.from({length:fishCount},()=>new T.Vector3());
   const net=new T.Vector3(),flow=new T.Vector3();
   const fishYaws=new Float32Array(fishCount);
+  const clownfish:{root:T.Group;mixer:T.AnimationMixer}[]=[];
+  let requestedClownfish=false;
+
+  function loadClownfish(){
+    requestedClownfish=true;
+    new GLTFLoader().loadAsync(clownfishUrl).then(({scene,animations})=>{
+      const swim=T.AnimationClip.findByName(animations,'swim');
+      if(!swim)throw new Error('Clownfish swim animation is missing');
+      const bounds=new T.Box3().setFromObject(scene);
+      const center=bounds.getCenter(new T.Vector3());
+      const length=bounds.getSize(new T.Vector3()).z;
+      if(!Number.isFinite(length)||length<=0)throw new Error('Clownfish model has invalid bounds');
+      for(let i=0;i<fishCount;i++){
+        const root=new T.Group();
+        const fish=clone(scene);
+        fish.position.sub(center);
+        root.scale.setScalar((.53+(i%3)*.07)/length);
+        root.visible=false;
+        root.add(fish);
+        const mixer=new T.AnimationMixer(fish);
+        const action=mixer.clipAction(swim);
+        action.time=swim.duration*((i*.618)%1);
+        action.play();
+        reef.add(root);
+        clownfish.push({root,mixer});
+      }
+      previousTime=-1;
+    }).catch(error=>console.warn('Unable to load reef clownfish',error));
+  }
+
   let previousTime=-1;
   function update(time:number,underwater:boolean,diver:T.Vector3|null){
 
     reef.visible=underwater;
     if(!underwater){previousTime=-1;return;}
+    if(!requestedClownfish)loadClownfish();
     const dt=previousTime<0?0:T.MathUtils.clamp(time-previousTime,0,.1);
     previousTime=time;
-    for(let i=0;i<fishCount;i++){
-      const school=Math.floor(i/6);
+    for(let i=0;i<clownfish.length;i++){
+      const school=Math.floor(i/schoolSize);
       const radius=4.1+school*.38;
       const crossing=school%2===1;
-      const angle=time*(crossing?.30:.40)+school*1.7+(i%6)*.08;
+      const angle=time*(crossing?.30:.40)+school*1.7+(i%schoolSize)*.21;
       const baseX=24.5+Math.cos(angle)*radius;
-      const span=crossing?3.25:1.47;
-      const baseZ=channel(baseX)+Math.sin(angle)*span+(i%3-1)*.17;
-      net.set(baseX,-2.2-school*.28+.17*Math.sin(angle*2+i),baseZ);
+      const span=(crossing?3.25:1.75)+school*.10;
+      const baseZ=channel(baseX)+Math.sin(angle)*span+(i%3-1)*.30;
+      net.set(baseX,-2.4-school*.31+.22*Math.sin(angle*2+i),baseZ);
       if(diver){
         flow.subVectors(net,diver);
         const distance=flow.length();
@@ -135,33 +156,11 @@ export function createReef(scene:T.Scene){
           y=Math.max(y,Math.min(-.61,obstacle.top+.38));
       }
       const yaw=fishYaws[i];
-      model.position.set(x,y,z);
-      model.rotation.set(0,yaw,.06*Math.sin(time*6+i));
-      model.scale.set(.071,.116,.25+(i%3)*.025);
-      model.updateMatrix();
-      bodies.setMatrixAt(i,model.matrix);
-      fishOrientation.copy(model.quaternion);
-      for(let side=0;side<2;side++){
-        const sign=side===0?-1:1;
-        const index=i*2+side;
-        model.position.set(sign*.058,.024,.151).applyQuaternion(fishOrientation);
-        model.position.x+=x;
-        model.position.y+=y;
-        model.position.z+=z;
-        model.scale.set(.021,.034,.033);
-        model.updateMatrix();
-        irises.setMatrixAt(index,model.matrix);
-        axis.set(sign*.015,0,.004).applyQuaternion(fishOrientation);
-        model.position.add(axis);
-        model.scale.set(.015,.023,.022);
-        model.updateMatrix();
-        pupils.setMatrixAt(index,model.matrix);
-      }
-      model.position.set(x-Math.sin(yaw)*.25,y,z-Math.cos(yaw)*.25);
-      model.rotation.set(Math.PI/2,yaw+.36*Math.sin(time*12+i),0,'YXZ');
-      model.scale.set(.029,.17,.11);
-      model.updateMatrix();
-      tails.setMatrixAt(i,model.matrix);
+      const clown=clownfish[i];
+      clown.root.position.set(x,y,z);
+      clown.root.rotation.set(0,yaw,.06*Math.sin(time*6+i));
+      clown.root.visible=true;
+      clown.mixer.update(dt);
     }
     for(let i=0;i<bubbles.count;i++){
       const age=(time*.23+i*.371)%1;
@@ -175,7 +174,7 @@ export function createReef(scene:T.Scene){
       model.updateMatrix();
       bubbles.setMatrixAt(i,model.matrix);
     }
-    for(const object of [bodies,tails,irises,pupils,bubbles])object.instanceMatrix.needsUpdate=true;
+    bubbles.instanceMatrix.needsUpdate=true;
   }
   return {update,blocked};
 }

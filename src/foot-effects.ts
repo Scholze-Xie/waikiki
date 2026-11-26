@@ -1,7 +1,7 @@
 import * as T from 'three';
-import { coast, sandHeight, shoreEdge, waterHeight } from './waves';
+import { coast, shoreEdge, waterHeight } from './waves';
 
-export function createFootEffects(scene:T.Scene){
+export function createFootEffects(scene:T.Scene,groundHeight:(x:number,z:number)=>number){
   const capacity=96;
   function batch(geometry:T.BufferGeometry,color:number,count:number){
     const material=new T.MeshBasicMaterial({color,transparent:true,depthWrite:false,side:T.DoubleSide});
@@ -42,7 +42,7 @@ export function createFootEffects(scene:T.Scene){
   let cursor=0;
   function contact(x:number,z:number,yaw:number,side:number,time:number){
     const depth=coast(z)-x;
-    const wet=shoreEdge(x,z,time)>=0&&waterHeight(x,z,time)>sandHeight(x,z)+.012;
+    const wet=shoreEdge(x,z,time)>=0&&waterHeight(x,z,time)>groundHeight(x,z)+.012;
     if(wet ? depth< -5.8||depth>.8 : depth<-.3||depth>2.6)return;
     Object.assign(slots[cursor],{x,z,yaw,side,time,wet,washed:Infinity});
     cursor=(cursor+1)%capacity;
@@ -77,17 +77,18 @@ export function createFootEffects(scene:T.Scene){
           draw(spray,.77*(1-age/.49));
         }
       }else{
-        if(shoreEdge(x,z,time)>=0&&waterHeight(x,z,time)>sandHeight(x,z)+.012)slot.washed=Math.min(slot.washed,time);
+        const height=groundHeight(x,z);
+        if(shoreEdge(x,z,time)>=0&&waterHeight(x,z,time)>height+.012)slot.washed=Math.min(slot.washed,time);
         const opacity=.46*(1-age/9)*Math.max(0,1-(Math.max(0,time-slot.washed))/.65);
         if(opacity<=0)continue;
-        const dx=(sandHeight(x+.08,z)-sandHeight(x-.08,z))/.16;
-        const dz=(sandHeight(x,z+.08)-sandHeight(x,z-.08))/.16;
+        const dx=(groundHeight(x+.08,z)-groundHeight(x-.08,z))/.16;
+        const dz=(groundHeight(x,z+.08)-groundHeight(x,z-.08))/.16;
         normal.set(-dx,1,-dz).normalize();
         forward.set(Math.sin(yaw),0,Math.cos(yaw));
         forward.addScaledVector(normal,-forward.dot(normal)).normalize();
         right.crossVectors(normal,forward);
         model.quaternion.setFromRotationMatrix(basis.makeBasis(right,normal,forward));
-        model.position.set(x,sandHeight(x,z)+.012,z);
+        model.position.set(x,height+.012,z);
         model.scale.set(1,1,1);
         draw(prints,opacity*side);
       }

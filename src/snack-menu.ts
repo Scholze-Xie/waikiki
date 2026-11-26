@@ -15,7 +15,7 @@ export function setupSnackMenu(visit:()=>void,prepare:(foods:SnackFood[])=>void,
 }
 
 export function setupShopMenu<Food extends string>(prefix:string,menu:readonly {name:string;price:number;food:Food;color?:number}[],
-  visit:()=>void,prepare:(foods:Food[])=>void,onOrder:()=>void){
+  visit:()=>void,prepare:(foods:Food[])=>void,onOrder:()=>void,displayButton?:HTMLButtonElement){
   const dialog=document.querySelector<HTMLDialogElement>('#'+prefix+'-menu')!;
   const items=document.querySelector<HTMLUListElement>('#'+prefix+'-items')!;
   const total=document.querySelector('#'+prefix+'-total')!;
@@ -61,14 +61,21 @@ export function setupShopMenu<Food extends string>(prefix:string,menu:readonly {
       amount+=row.quantity*row.price;
     }
     order.disabled=quantity===0;
+    if(displayButton)displayButton.disabled=quantity===0;
     const itemsLabel=quantity===1?'item':'items';
     total.textContent=quantity===0?'Your basket is empty.':quantity+' '+itemsLabel+' · '+dollars.format(amount);
   }
+  const basket=()=>rows.flatMap(({food,quantity})=>Array<Food>(quantity).fill(food));
+  displayButton?.addEventListener('click',()=>{
+    prepare(basket());
+    dialog.close();
+    onOrder();
+  });
   order.addEventListener('click',()=>{
     if(order.disabled)return;
     const selected=rows.filter(row=>row.quantity>0);
     const summary=selected.map(row=>row.quantity+' × '+row.name).join(', ');
-    prepare([...new Set(selected.map(row=>row.food))]);
+    prepare(displayButton?basket():[...new Set(selected.map(row=>row.food))]);
     const amount=rows.reduce((sum,row)=>sum+row.price*row.quantity,0);
     for(const row of rows)row.quantity=0;
     const confirmation='Order '+(++orderNumber)+' · '+summary+' · '+dollars.format(amount);

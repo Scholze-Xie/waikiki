@@ -18,12 +18,14 @@ const errorPanel=document.querySelector<HTMLElement>('#error')!;
 const errorMessage=document.querySelector<HTMLElement>('#error-message')!;
 const soundButton=document.querySelector<HTMLButtonElement>('#sound')!;
 const divePad=document.querySelector<HTMLElement>('#dive-pad')!;
+const walkPad=document.querySelector<HTMLElement>('#walk-pad')!;
 document.querySelector('#retry')!.addEventListener('click',()=>location.reload());
 
 function showSceneError(message:string){
   loading.hidden=true;
   guide.inert=true;
   divePad.inert=true;
+  walkPad.inert=true;
   soundButton.disabled=true;
   errorMessage.textContent=message;
   errorPanel.hidden=false;
@@ -36,7 +38,6 @@ function start(){
   renderer.outputColorSpace=T.SRGBColorSpace;
   const canvas=renderer.domElement;
   canvas.tabIndex=0;
-  canvas.setAttribute('aria-label','3D beach scene. Use arrow keys to look around.');
   document.querySelector('#view')!.append(canvas);
   const scene=new T.Scene();
   const sky=new T.Color(0xa5d6d3),deep=new T.Color(0x23666c);
@@ -59,12 +60,24 @@ function start(){
   const moveSea=createSea(scene);
   const reef=createReef(scene);
   const moveSharks=createSharks(scene);
-  const {subjects,update:movePeople}=createPeople(scene);
-  const cameraRig=createCamera(canvas,reef.blocked);
+  const {subjects,update:movePeople}=createPeople(scene,environment.terrainHeight);
+  const cameraRig=createCamera(canvas,reef.blocked,environment.terrainHeight,environment.mangroveColliders);
+  document.querySelector<HTMLElement>('#experience')!.addEventListener('wheel',event=>{
+    if(event.defaultPrevented||event.ctrlKey||!(event.target instanceof Element))return;
+    if(event.target.closest('dialog, select'))return;
+    if(guide.contains(event.target)&&guide.scrollHeight>guide.clientHeight)return;
+    const unit=event.deltaMode===1?16:event.deltaMode===2?100:1;
+    if(cameraRig.zoom(event.deltaY*unit))event.preventDefault();
+  },{passive:false});
   const {camera}=cameraRig;
   const markerLayer=document.querySelector<HTMLElement>('#markers')!;
   const mode=document.querySelector<HTMLElement>('#mode')!;
   const hint=document.querySelector<HTMLElement>('#hint')!;
+  const zoomButtons=document.querySelector<HTMLElement>('#zoom')!;
+  const walkButton=document.querySelector<HTMLButtonElement>('#walk')!;
+  walkButton.addEventListener('click',()=>select('walk'));
+  document.querySelector('#zoom-in')!.addEventListener('click',()=>cameraRig.zoom(-420));
+  document.querySelector('#zoom-out')!.addEventListener('click',()=>cameraRig.zoom(420));
   const back=document.querySelector<HTMLButtonElement>('#back')!;
   const nav=document.querySelector<HTMLElement>('#shortcuts')!;
   const explore=document.querySelector<HTMLButtonElement>('#explore')!;
@@ -110,9 +123,18 @@ function start(){
 
   function updateHint(){
     const isTouch=touch.matches||compact.matches;
-    hint.textContent=cameraRig.view==='dive'
+    const view=cameraRig.view;
+    const following=view!==null&&typeof view==='object';
+    hint.textContent=view==='walk'
+      ? (touch.matches?'Drag to look. Hold a direction, Rise, or Descend to move.':'WASD to walk. E to rise, Q to descend. Drag or use arrow keys to look.')
+      : view==='dive'
       ? (isTouch?'Drag to look. Hold a swim control to move.':'Drag or use arrows to look. WASD to swim. Q to dive, E to rise.')
-      : (isTouch?'Drag to look around. Pinch to zoom.':'Drag to look around. Scroll to zoom.');
+      : following?'Use + / − to adjust the distance.':(isTouch?'Drag to look around. Pinch to zoom.':'Drag to look around. Scroll to zoom.');
+    zoomButtons.hidden=view==='dive'||view==='walk';
+    walkButton.hidden=view==='walk';
+    canvas.setAttribute('aria-label',view==='walk'
+      ? '3D beach walk. WASD to walk, E to rise, Q to descend, and arrow keys to look.'
+      : '3D beach scene. Use arrow keys to look around and plus or minus to zoom.');
   }
   touch.addEventListener('change',updateHint);
   compact.addEventListener('change',updateHint);
@@ -130,11 +152,10 @@ function start(){
     fruitReceipt.hidden=view!=='fruit';
     const scenic=typeof view==='string'&&view!=='shop';
     viewpoint.value=scenic?view:view===null?'overview':'';
-    nav.hidden=view==='shop'||view==='dive'||typeof view==='object'&&view!==null;
+    nav.hidden=view==='shop'||view==='walk'||view==='dive'||typeof view==='object'&&view!==null;
     explore.hidden=nav.hidden;
     if(nav.hidden)setExpanded(false);
     updateHint();
-    hint.hidden=nav.hidden&&view!=='shop'&&view!=='dive';
     back.hidden=!view;
     if(restoreFocus)viewpoint.focus({preventScroll:true});
     else if(focusWasInNav&&nav.hidden)back.focus({preventScroll:true});
@@ -166,6 +187,7 @@ function start(){
   viewpoint.addEventListener('change',()=>{
     const id=viewpoint.value;
     if(id==='overview')select(null);
+    else if(id==='walk')select('walk');
     else if(Object.hasOwn(scenicStops,id))select(id as keyof typeof scenicStops);
   });
   function settleOrder(){
@@ -174,7 +196,8 @@ function start(){
     explore.focus({preventScroll:true});
   }
   setupSnackMenu(()=>{if(cameraRig.view!=='snacks')select('snacks');},environment.prepareSnacks,settleOrder);
-  setupShopMenu('fruit',fruitMenu,()=>{if(cameraRig.view!=='fruit')select('fruit');},environment.prepareFruit,settleOrder);
+  setupShopMenu('fruit',fruitMenu,()=>{if(cameraRig.view!=='fruit')select('fruit');},environment.prepareFruit,settleOrder,
+    document.querySelector<HTMLButtonElement>('#fruit-display')!);
   document.querySelector('#shop-view')!.addEventListener('click',()=>select('shop'));
   back.addEventListener('click',()=>select(null,true));
   window.addEventListener('keydown',event=>{
@@ -261,6 +284,7 @@ function start(){
       sceneReady=true;
       guide.inert=false;
       divePad.inert=false;
+      walkPad.inert=false;
       soundButton.disabled=false;
       loading.hidden=true;
       errorPanel.hidden=true;
@@ -291,7 +315,7 @@ function start(){
         if(marker.dataset.hover!==active)marker.dataset.hover=active;
       });
     }
-    const nextCursor=pressed?'grabbing':showMarkers&&hovered?'pointer':orbiting||cameraRig.view==='dive'?'grab':'';
+    const nextCursor=pressed?'grabbing':showMarkers&&hovered?'pointer':orbiting||cameraRig.view==='dive'||cameraRig.view==='walk'?'grab':'';
     if(nextCursor!==cursor){cursor=nextCursor;canvas.style.cursor=cursor;}
   });
 }

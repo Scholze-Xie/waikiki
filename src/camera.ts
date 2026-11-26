@@ -1,4 +1,6 @@
 import {createDiveControls} from './dive-controls';
+import {createWalkControls} from './walk-controls';
+import type {MangroveCollider} from './mangroves';
 import * as T from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { Subject } from './people';
@@ -21,15 +23,15 @@ export const scenicStops = {
     opening:new T.Vector3(-22,7.4,2.3), minDistance:5.5,maxDistance:21
   },
   creek: {
-    label:'Jungle Creek', focus:new T.Vector3(-9.5,.68,streamZ(-9.5)),
-    opening:new T.Vector3(.5,4.1,streamZ(-9.5)+8.7), minDistance:5,maxDistance:19
+    label:'Jungle Creek', focus:new T.Vector3(-14.4,.55,streamZ(-14.4)+.28),
+    opening:new T.Vector3(-6.55,3.30,streamZ(-6.55)-.38), minDistance:5,maxDistance:19
   },
   guardians: {
     label:'Stone Guardians', focus:new T.Vector3(-17.5,4.05,-11.1),
     opening:new T.Vector3(-9.1,6.5,-2.7), minDistance:6,maxDistance:22
   },
   ridge: {
-    label:'Mountain Lookout', focus:new T.Vector3(-22,5.2,-24),
+    label:'Woodland Lookout', focus:new T.Vector3(-22,5.2,-24),
     opening:new T.Vector3(-45,26,-39), minDistance:16,maxDistance:39
   },
   snacks: {
@@ -37,12 +39,16 @@ export const scenicStops = {
     opening:new T.Vector3(-5.3,3.55,14.8), minDistance:5,maxDistance:18
   },
   fruit: {
-    label:'Tropical Fruit Stand',focus:new T.Vector3(-14.7,2.06,8.53),
-    opening:new T.Vector3(-11.4,3.74,14.75),minDistance:4.4,maxDistance:15
+    label:'Tropical Fruit Stand',focus:new T.Vector3(-14.7,2.03,8.66),
+    opening:new T.Vector3(-12.85,4.15,14.18),minDistance:3.9,maxDistance:15
   },
   tide: {
     label:'Beach Tide Line',focus:new T.Vector3(-.55,.29,5.35),
     opening:new T.Vector3(2.4,2.13,8.3),minDistance:2.6,maxDistance:13
+  },
+  mangroves: {
+    label:'Mangrove Grove',focus:new T.Vector3(-12.88,3.57,25.5),
+    opening:new T.Vector3(-7.78,18.33,14.69),minDistance:4,maxDistance:29
   },
   hanauma: {
     label:'Hanauma Bay',focus:new T.Vector3(-14,5.5,hanauma.centerZ),
@@ -60,11 +66,11 @@ export const scenicStops = {
 } satisfies Record<string,OrbitStop>;
 
 type ScenicStop = keyof typeof scenicStops;
-export type CameraView = Subject | ScenicStop | 'shop' | null;
+export type CameraView = Subject | ScenicStop | 'shop' | 'walk' | null;
 
 const overview:OrbitStop = {
   label:'Beach Overview',focus:new T.Vector3(1,1,-5.5),
-  opening:new T.Vector3(13,15.5,30),minDistance:12,maxDistance:49
+  opening:new T.Vector3(13,15.5,30),minDistance:7.5,maxDistance:49
 };
 const shop:OrbitStop = {
   label:'Inside the Surf Shop',focus:new T.Vector3(-10,1.18,-.95),
@@ -74,17 +80,21 @@ const shop:OrbitStop = {
 function orbitStop(view:CameraView):OrbitStop|null {
   if (view===null) return overview;
   if (view==='shop') return shop;
+  if (view==='walk') return null;
   return typeof view==='string'?scenicStops[view]:null;
 }
 
 export function cameraLabel(view:CameraView) {
+  if(view==='walk')return 'Beach Walk';
   if(view&&typeof view!=='string')return 'Following \u00b7 '+view.label;
   return orbitStop(view)?.label ?? overview.label;
 }
 
-export function createCamera(canvas:HTMLCanvasElement,blocked:(position:T.Vector3)=>boolean=()=>false){
+export function createCamera(canvas:HTMLCanvasElement,blocked:(position:T.Vector3)=>boolean,
+  terrainHeight:(x:number,z:number)=>number,mangroveColliders:readonly MangroveCollider[]){
   const camera=new T.PerspectiveCamera(48,1,.15,230);
   const diving=createDiveControls(canvas,camera,blocked);
+  const walking=createWalkControls(canvas,camera,terrainHeight,mangroveColliders);
   camera.position.copy(overview.opening);
   const controls=new OrbitControls(camera,canvas);
   controls.enableDamping=true;
@@ -100,6 +110,7 @@ export function createCamera(canvas:HTMLCanvasElement,blocked:(position:T.Vector
   let view:CameraView=null;
   let stop:OrbitStop|null=overview;
   let transition=1;
+  let followDistance=1;
   let swimming=false;
   let defaultFov=48;
   let fromFov=camera.fov;
@@ -140,7 +151,7 @@ export function createCamera(canvas:HTMLCanvasElement,blocked:(position:T.Vector
       if(controls.enabled)camera.position.y=Math.min(-.55,camera.position.y);
       return;
     }
-    const surface=Math.max(.17,woodlandHeight(x,z));
+    const surface=Math.max(.17,terrainHeight(x,z));
     const shopRoof=x>-13.65&&x< -5.62&&z> -3.65&&z<1.46&&view!=='shop'?4.75:0;
     const snackRoof=x>-10.3&&x<-5.7&&z>6.2&&z<9.55?4.08:0;
     const fruitRoof=x>-17.4&&x<-12&&z>6.45&&z<9.4?4.16:0;
@@ -151,6 +162,7 @@ export function createCamera(canvas:HTMLCanvasElement,blocked:(position:T.Vector
   function select(next:CameraView){
     swimming=false;
     diving.setActive(false);
+    walking.setActive(false);
     if(controls.enabled)look.copy(controls.target);
     fromLook.copy(look);
     fromPosition.copy(camera.position);
@@ -158,7 +170,32 @@ export function createCamera(canvas:HTMLCanvasElement,blocked:(position:T.Vector
     controls.enabled=false;
     view=next;
     stop=orbitStop(next);
+    followDistance=1;
     transition=0;
+    if(view==='walk'){
+      const x=-5,z=2.5;
+      camera.position.set(x,terrainHeight(x,z)+1.65,z);
+      look.copy(camera.position).add(new T.Vector3(-6,-.18,.8));
+      camera.lookAt(look);
+      transition=1;
+      setFov(defaultFov);
+      walking.setActive(true);
+    }
+  }
+
+  function zoom(delta:number){
+    if(!Number.isFinite(delta)||delta===0)return false;
+    const scale=Math.pow(.95,Math.min(Math.abs(delta),500)*.01);
+    if(controls.enabled){
+      if(delta<0)controls.dollyIn(scale);
+      else controls.dollyOut(scale);
+      return true;
+    }
+    if(view&&typeof view==='object'){
+      followDistance=T.MathUtils.clamp(followDistance*(delta<0?scale:1/scale),.72,1.7);
+      return true;
+    }
+    return false;
   }
 
   function follow(subject:Subject){
@@ -180,9 +217,15 @@ export function createCamera(canvas:HTMLCanvasElement,blocked:(position:T.Vector
         target.z-=.7;
         break;
     }
+    goal.lerp(target,1-followDistance);
   }
 
   function update(delta:number){
+    if(view==='walk'){
+      walking.update(delta);
+      camera.getWorldDirection(look).multiplyScalar(8).add(camera.position);
+      return;
+    }
     if(swimming){
       diving.update(delta);
       camera.getWorldDirection(look).multiplyScalar(8).add(camera.position);
@@ -230,6 +273,10 @@ export function createCamera(canvas:HTMLCanvasElement,blocked:(position:T.Vector
   }
 
   canvas.addEventListener('keydown',event=>{
+    if(event.key==='+'||event.key==='='||event.key==='-'){
+      if(zoom(event.key==='-'?240:-240))event.preventDefault();
+      return;
+    }
     if(!controls.enabled)return;
     const angle=.13;
     switch(event.key){
@@ -243,7 +290,7 @@ export function createCamera(canvas:HTMLCanvasElement,blocked:(position:T.Vector
   });
   enableOrbit(overview);
   return {
-    camera,select,update,resize,
+    camera,select,update,resize,zoom,
     get view(){return view},
     get orbiting(){return controls.enabled},
     get bearing(){

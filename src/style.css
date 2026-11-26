@@ -129,7 +129,20 @@ button:not(:disabled):active {transform:translateY(1px)}
   transform:translateY(-2px) rotate(45deg);
 }
 #explore[aria-expanded=true]::after {transform:translateY(1px) rotate(225deg)}
-#hint {color:#efdcb0;font-size:.81rem;line-height:1.35;margin:10px 0 0}
+.camera-tools {display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px}
+#hint {color:#efdcb0;font-size:.81rem;line-height:1.35;margin:0}
+#walk {margin-inline-start:auto;min-height:44px;white-space:nowrap}
+#zoom {display:flex;gap:5px}
+#zoom button {
+  width:44px;
+  min-height:44px;
+  padding:0;
+  border-color:var(--line);
+  background:#ffffff12;
+  color:var(--sand);
+  font-size:1.25rem;
+}
+@media(hover:hover) {#zoom button:hover {background:#ffffff29}}
 #back {margin-top:9px}
 kbd {margin-left:5px;font-size:.76em;color:inherit;opacity:.83}
 .visually-hidden {position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
@@ -212,47 +225,47 @@ kbd {margin-left:5px;font-size:.76em;color:inherit;opacity:.83}
 :is(#snack-receipt,#fruit-receipt):empty {display:none}
 .fruit-swatch {display:inline-block;width:.78em;height:.78em;margin-inline-end:.52em;border:1px solid var(--ink);border-radius:50%}
 
-#dive-pad {
+.movement-pad {
   display:none;
   position:absolute;
   right:var(--right);
   bottom:var(--bottom);
   z-index:2;
-  grid-template-columns:repeat(3,minmax(44px,1fr));
+  grid-template-columns:repeat(3,minmax(44px,auto));
   gap:5px;
 }
-#dive-pad button {touch-action:none}
-#dive-pad button:first-child {grid-column:2}
-#dive-pad button:nth-child(2), #dive-pad button:nth-child(5) {grid-column:1}
-#dive-pad button:last-child {grid-column:3}
+.movement-pad button {touch-action:none}
+.movement-pad button:first-child {grid-column:2}
+.movement-pad button:nth-child(2), .movement-pad button:nth-child(5) {grid-column:1}
+.movement-pad button:last-child {grid-column:3}
 .swim-arrow {display:block;margin:auto;width:10px;height:10px;border:solid var(--ink);border-width:2px 0 0 2px;transform:translateY(2px) rotate(45deg)}
-[data-swim=KeyA] .swim-arrow {transform:translateX(2px) rotate(-45deg)}
-[data-swim=KeyS] .swim-arrow {transform:translateY(-2px) rotate(225deg)}
-[data-swim=KeyD] .swim-arrow {transform:translateX(-2px) rotate(135deg)}
+:is([data-walk=KeyA],[data-swim=KeyA]) .swim-arrow {transform:translateX(2px) rotate(-45deg)}
+:is([data-walk=KeyS],[data-swim=KeyS]) .swim-arrow {transform:translateY(-2px) rotate(225deg)}
+:is([data-walk=KeyD],[data-swim=KeyD]) .swim-arrow {transform:translateX(-2px) rotate(135deg)}
 
 @media(max-width:620px), (max-height:480px) {
   .guide {padding:11px}
   #explore:not([hidden]) {display:block}
   .guide:has(#explore[aria-expanded=false]) #shortcuts {display:none}
   #viewpoint {font-size:1rem}
-  #hint {margin-top:8px}
+  .camera-tools {margin-top:8px}
 }
 @media(max-width:370px) {
   #shortcuts button {padding-inline:3px;font-size:.75rem}
 }
 @media(any-pointer:coarse), (max-width:620px) {
-  #dive-pad:not([hidden]) {display:grid}
+  .movement-pad:not([hidden]) {display:grid}
   .marker {width:44px;height:44px}
   .marker::after {inset:15px}
 }
 @media(max-width:620px) {
-  #experience:has(#dive-pad:not([hidden])) .guide {
+  #experience:has(.movement-pad:not([hidden])) .guide {
     bottom:calc(var(--bottom) + 151px);
     max-height:calc(100% - var(--bottom) - 240px);
   }
 }
 @media(any-pointer:coarse) and (min-width:621px) {
-  #experience:has(#dive-pad:not([hidden])) .guide {max-width:calc(100% - var(--left) - var(--right) - 170px)}
+  #experience:has(.movement-pad:not([hidden])) .guide {max-width:calc(100% - var(--left) - var(--right) - 215px)}
 }
 @media(max-height:480px) {
   .guide {width:min(26rem,calc(100% - var(--left) - var(--right)))}

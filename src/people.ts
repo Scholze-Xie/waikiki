@@ -2,12 +2,13 @@ import * as T from 'three';
 import {createFootEffects} from './foot-effects';
 import {box,surfboard} from './environment';
 import {makePerson,shaveIceCup,shaveIceSpoon,spoonReach} from './character-model';
-import {crest,cycle,sandHeight,waterHeight} from './waves';
+import {crest,cycle,waterHeight} from './waves';
 
 export type Role='carrier'|'customer'|'surfer';
 type Person = ReturnType<typeof makePerson>;
 
 const smooth=T.MathUtils.smoothstep;
+const smoothMotion=T.MathUtils.smootherstep;
 const lerp=T.MathUtils.lerp;
 const down=new T.Vector3(0,-1,0);
 const up=new T.Vector3(0,1,0);
@@ -18,15 +19,19 @@ const direction=new T.Vector3(), bendDirection=new T.Vector3(), bend=new T.Vecto
 const inverse=new T.Quaternion(), footHeading=new T.Quaternion(), footPitch=new T.Quaternion();
 const initialUpper=new T.Quaternion(), initialJoint=new T.Quaternion();
 const strideStart=new T.Vector3(), strideEnd=new T.Vector3(), ankle=new T.Vector3();
+const restingAnkle=new T.Vector3();
 const lastStep=new WeakMap<T.Group,number>();
 type Contact=ReturnType<typeof createFootEffects>['contact'];
 type Path=(time:number,position:T.Vector3)=>number;
+type GroundHeight=(x:number,z:number)=>number;
 type Walk={path:Path; period:number; phase:number; effort:number; lift:number};
 
 function solveLimb(upper:T.Group,joint:T.Group,end:T.Group,target:T.Vector3,pole:T.Vector3,weight=1){
   if(weight<=0)return;
-  initialUpper.copy(upper.quaternion);
-  initialJoint.copy(joint.quaternion);
+  if(weight<1){
+    initialUpper.copy(upper.quaternion);
+    initialJoint.copy(joint.quaternion);
+  }
   const first=-joint.position.y, second=-end.position.y;
   upper.parent!.worldToLocal(direction.copy(target)).sub(upper.position);
   const distance=T.MathUtils.clamp(direction.length(),Math.abs(first-second)+.001,first+second-.001);
@@ -39,8 +44,10 @@ function solveLimb(upper:T.Group,joint:T.Group,end:T.Group,target:T.Vector3,pole
   const lower=direction.multiplyScalar(distance).sub(bend).normalize();
   lower.applyQuaternion(inverse.copy(upper.quaternion).invert());
   joint.quaternion.setFromUnitVectors(down,lower);
-  upper.quaternion.slerp(initialUpper,1-weight);
-  joint.quaternion.slerp(initialJoint,1-weight);
+  if(weight<1){
+    upper.quaternion.slerp(initialUpper,1-weight);
+    joint.quaternion.slerp(initialJoint,1-weight);
+  }
 }
 
 function footAnchor(path:Path,time:number,side:number,target:T.Vector3){
@@ -50,14 +57,15 @@ function footAnchor(path:Path,time:number,side:number,target:T.Vector3){
   return yaw;
 }
 
-function groundPose(p:Person,time:number,offset:number,shoes:boolean,walk?:Walk,contact?:Contact){
+function groundPose(p:Person,time:number,offset:number,shoes:boolean,groundHeight:GroundHeight,walk?:Walk,contact?:Contact){
   const phase=walk?time/walk.period+walk.phase:0;
   const effort=walk?.effort??0;
   const rhythm=phase*Math.PI*2;
   const breath=Math.sin(time*2.1+offset);
   const weightShift=.027*Math.sin(time*.86+offset)*(1-effort);
   const stride=Math.sin(rhythm);
-  const hipHeight=walk?.676+(.017*stride**2-.038)*effort:.731;
+  const hipHeight=.731+(.017*stride**2-.092)*effort;
+  const stepWeight=smooth(effort,.035,.28);
   p.body.position.set(weightShift-.022*stride*effort,hipHeight+.006*breath,0);
   p.body.rotation.set(.055*effort+.017*breath,.10*stride*effort,-.043*stride*effort+.85*weightShift);
   p.head.rotation.set(-.033*effort+.023*breath,-.07*stride*effort+.17*Math.sin(time*.63+offset)*(1-.65*effort),.45*weightShift);
@@ -66,7 +74,7 @@ function groundPose(p:Person,time:number,offset:number,shoes:boolean,walk?:Walk,
     const footPhase=phase+i*.5;
     const step=Math.floor(footPhase);
     const stance=.60;
-    const swing=smooth(footPhase-step,stance,1);
+    const swing=smoothMotion(footPhase-step,stance,1);
     let yaw=p.root.rotation.y;
     let pitch=0;
     if(walk){
@@ -77,8 +85,13 @@ function groundPose(p:Person,time:number,offset:number,shoes:boolean,walk?:Walk,
       ankle.lerpVectors(strideStart,strideEnd,swing);
       yaw+=Math.atan2(Math.sin(nextYaw-yaw),Math.cos(nextYaw-yaw))*swing;
       pitch=Math.sin(swing*Math.PI*2)*.26*effort;
+      if(stepWeight<1){
+        p.root.localToWorld(restingAnkle.set(side/p.root.scale.x,0,i===0?.055:-.035));
+        ankle.lerp(restingAnkle,1-stepWeight);
+        yaw=p.root.rotation.y+Math.atan2(Math.sin(yaw-p.root.rotation.y),Math.cos(yaw-p.root.rotation.y))*stepWeight;
+      }
       const previous=lastStep.get(foot);
-      if(contact&&previous!==undefined&&previous!==step&&effort>.12){
+      if(contact&&previous!==undefined&&previous!==step&&stepWeight>.6){
         contact(ankle.x,ankle.z,yaw,i===0?-1:1,time);
       }
       lastStep.set(foot,step);
@@ -86,7 +99,7 @@ function groundPose(p:Person,time:number,offset:number,shoes:boolean,walk?:Walk,
       p.root.localToWorld(ankle.set(side/p.root.scale.x,0,i===0?.055:-.035));
     }
     const lift=(walk?.lift??0)*Math.sin(Math.PI*swing)*effort;
-    ankle.y=sandHeight(ankle.x,ankle.z)+((shoes?.056:.049)+lift)*p.root.scale.y;
+    ankle.y=groundHeight(ankle.x,ankle.z)+((shoes?.056:.049)+lift)*p.root.scale.y;
     solveLimb(upper,knee,foot,ankle,forward);
     footHeading.setFromAxisAngle(up,yaw).multiply(footPitch.setFromAxisAngle(across,pitch));
     foot.quaternion.copy(knee.getWorldQuaternion(inverse).normalize().invert().multiply(footHeading));
@@ -100,28 +113,28 @@ function groundPose(p:Person,time:number,offset:number,shoes:boolean,walk?:Walk,
 
 function carrierPath(time:number,position:T.Vector3){
   const stroll=T.MathUtils.euclideanModulo(time+3,19);
-  const progress=smooth(stroll,0,8)-smooth(stroll,9.5,17.5);
+  const progress=smoothMotion(stroll,0,8)-smoothMotion(stroll,9.5,17.5);
   position.set(lerp(-6.1,.82,progress),0,3.9+.9*Math.sin(progress*1.6));
-  const turn=smooth(stroll,8,9.5)+smooth(stroll,17.5,19);
+  const turn=smoothMotion(stroll,8,9.5)+smoothMotion(stroll,17.5,19);
   return Math.atan2(6.92,1.44*Math.cos(progress*1.6))+Math.PI*turn;
 }
 
-function placeOnSand(person:Person,time:number,path:Path){
+function placeOnSand(person:Person,time:number,path:Path,groundHeight:GroundHeight){
   const position=person.root.position;
   person.root.rotation.y=path(time,position);
-  position.y=sandHeight(position.x,position.z);
+  position.y=groundHeight(position.x,position.z);
 }
 
 export type Subject={id:Role; label:string; person:Person};
-export function createPeople(scene:T.Scene){
-  const feet=createFootEffects(scene);
+export function createPeople(scene:T.Scene,groundHeight:GroundHeight){
+  const feet=createFootEffects(scene,groundHeight);
   const carrier=makePerson(scene,{
     shirt:0xca4d38,shorts:0x193d59,skin:0xb97245,hair:0x36281e,
     haircut:'bucket',print:'hibiscus',shoes:0x26475a,scale:1.04
   });
   const board=surfboard(carrier.body,0xf7b938,0x167988);
   board.position.set(.52,.025,.37);board.rotation.set(-Math.PI*.49,0,-.09);board.scale.setScalar(.77);
-  const carryWalk:Walk={path:carrierPath,period:.84,phase:0,effort:0,lift:.125};
+  const carryWalk:Walk={path:carrierPath,period:.76,phase:0,effort:0,lift:.118};
   const grip=carrier.arms[1];
   const gripPole=new T.Vector3(.9,-.4,.1);
   const customer=makePerson(scene,{
@@ -181,22 +194,22 @@ export function createPeople(scene:T.Scene){
     const stroll=T.MathUtils.euclideanModulo(time+3,19);
     const outbound=T.MathUtils.clamp(stroll/8,0,1);
     const inbound=T.MathUtils.clamp((stroll-9.5)/8,0,1);
-    const walking=4*(outbound*(1-outbound)+inbound*(1-inbound));
-    const turning=Math.sin(Math.PI*smooth(stroll,8,9.5))+Math.sin(Math.PI*smooth(stroll,17.5,19));
-    carryWalk.effort=.18+.82*Math.max(walking,.66*turning);
-    placeOnSand(carrier,time,carrierPath);
-    groundPose(carrier,time,0,true,carryWalk,feet.contact);
+    const walking=16*(outbound**2*(1-outbound)**2+inbound**2*(1-inbound)**2);
+    const turning=Math.sin(Math.PI*smoothMotion(stroll,8,9.5))+Math.sin(Math.PI*smoothMotion(stroll,17.5,19));
+    carryWalk.effort=Math.max(walking,.60*turning);
+    placeOnSand(carrier,time,carrierPath,groundHeight);
+    groundPose(carrier,time,0,true,groundHeight,carryWalk,feet.contact);
     const boardSway=Math.sin(time/carryWalk.period*Math.PI*2-.45)*carryWalk.effort;
     board.rotation.set(-Math.PI*.49+.055*boardSway,.035*boardSway,-.09);
     solveLimb(grip.upper,grip.elbow,grip.hand,board.localToWorld(handTarget.copy(boardContact)),gripPole);
 
     const cx=-5.75,cz=1.27;
-    customer.root.position.set(cx,sandHeight(cx,cz),cz);
+    customer.root.position.set(cx,groundHeight(cx,cz),cz);
     customer.root.rotation.y=-1.10;
-    groundPose(customer,time,1.3,true);
+    groundPose(customer,time,1.3,true,groundHeight);
     const bite=(time+1.4)%6.8;
-    const scoop=smooth(bite,.65,1.42)-smooth(bite,1.48,1.98);
-    const taste=smooth(bite,1.50,2.55)-smooth(bite,2.96,4.02);
+    const scoop=smoothMotion(bite,.65,1.42)-smoothMotion(bite,1.48,1.98);
+    const taste=smoothMotion(bite,1.50,2.55)-smoothMotion(bite,2.96,4.02);
     const watching=smooth(bite,.15,.9)-smooth(bite,3.65,4.6);
     customer.head.rotation.x+=.21*watching-.13*taste+.045*Math.sin(bite*15)*(smooth(bite,2.58,2.74)-smooth(bite,3.1,3.52));
     customer.head.rotation.y=lerp(customer.head.rotation.y,.24,watching*(1-taste));
@@ -209,6 +222,7 @@ export function createPeople(scene:T.Scene){
     dessert.localToWorld(scoopPoint.set(-.031,.165-.056*scoop,.03));
     customer.head.localToWorld(mouthPoint.set(-.012,-.07,.164));
     handTarget.copy(scoopPoint).lerp(mouthPoint,taste);
+    handTarget.y+=.08*Math.sin(Math.PI*taste);
     customer.root.localToWorld(utensilAim.set(-.093,lerp(.19,.055,taste),lerp(.06,.21,taste)))
       .sub(customer.root.position).normalize();
     scoopPoint.copy(handTarget);
@@ -220,18 +234,18 @@ export function createPeople(scene:T.Scene){
     spoonArm.hand.quaternion.copy(spoonArm.elbow.getWorldQuaternion(inverse).normalize().invert().multiply(handOrientation));
 
     crowd.forEach(({person,path,walk},i)=>{
-      placeOnSand(person,time,path);
-      groundPose(person,time,i*1.37,false,walk,feet.contact);
+      placeOnSand(person,time,path,groundHeight);
+      groundPose(person,time,i*1.37,false,groundHeight,walk,feet.contact);
     });
 
     feet.update(time);
     const t=time%cycle;
-    const standing=smooth(t,2.74,3.68)*(1-smooth(t,8.55,9.65));
-    const feetOnDeck=smooth(t,2.43,3.1)*(1-smooth(t,9.22,9.99));
-    const handsOnDeck=(smooth(t,1.8,2.25)-smooth(t,2.60,3.18))
-      +(smooth(t,9.16,9.66)-smooth(t,10.0,10.65));
-    const crouch=(smooth(t,2.15,2.72)-smooth(t,2.99,3.77))
-      +(smooth(t,8.65,9.24)-smooth(t,9.55,10.4));
+    const standing=smoothMotion(t,2.65,3.82)*(1-smoothMotion(t,8.47,9.73));
+    const feetOnDeck=smoothMotion(t,2.43,3.1)*(1-smoothMotion(t,9.22,9.99));
+    const handsOnDeck=(smoothMotion(t,1.76,2.27)-smoothMotion(t,2.60,3.27))
+      +(smoothMotion(t,9.10,9.68)-smoothMotion(t,10.0,10.72));
+    const crouch=(smoothMotion(t,2.15,2.81)-smoothMotion(t,2.99,3.80))
+      +(smoothMotion(t,8.58,9.25)-smoothMotion(t,9.55,10.44));
     const turn=.73*Math.sin(t*1.55)+.27*Math.sin(t*2.48+.8);
     const catching=smooth(t,0,1.1)*(1-smooth(t,8.5,12));
     const sZ=-6+4.4*Math.sin(t*Math.PI/6);
@@ -243,7 +257,7 @@ export function createPeople(scene:T.Scene){
     const pitch=(waterHeight(sX+noseX,sZ+noseZ,time)-waterHeight(sX-noseX,sZ-noseZ,time))/1.44;
     rig.rotation.set(-.32*pitch+.045*standing*Math.sin(t*1.18),yaw,standing*(.18*turn-.055),'YXZ');
     const compression=standing*(.036+.042*turn**2);
-    const stance=smooth(t,2.37,3.28)*(1-smooth(t,9.45,10.31));
+    const stance=smoothMotion(t,2.37,3.38)*(1-smoothMotion(t,9.36,10.35));
     surfer.root.rotation.y=Math.PI-2.17*stance;
     surfer.body.position.set(.073*standing*turn,.184+.51*standing+crouch*(.24-.16*standing)-compression,
       -.13+.15*stance-.085*crouch);
@@ -284,7 +298,8 @@ export function createPeople(scene:T.Scene){
       const wx=tail.x+age*1.6+Math.sin(i*21.1)*age*.7;
       const wz=tail.z+age*2.1+Math.cos(i*17.2)*age*.81;
       drop.position.set(wx,waterHeight(wx,wz,time)+Math.sin(Math.PI*age)*.64*standing,wz);
-      drop.scale.setScalar((.02+.093*(1-age))*standing);
+      const sprayLife=smooth(age,0,.10)*(1-smooth(age,.67,1));
+      drop.scale.setScalar((.037+.075*(1-age))*standing*sprayLife);
       drop.updateMatrix();
       wake.setMatrixAt(i,drop.matrix);
     }

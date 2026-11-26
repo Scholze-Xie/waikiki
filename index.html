@@ -7,8 +7,8 @@
   <meta name="theme-color" content="#12375a">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23e6af38'/%3E%3Cpath d='M2 16a14 14 0 0 1 28 0Z' fill='%23eb5739'/%3E%3Ccircle cx='16' cy='16' r='14' fill='none' stroke='%2312375a' stroke-width='2'/%3E%3C/svg%3E">
   <title>Waikīkī Surf Club</title>
-  <script type="module" crossorigin src="/waikiki/assets/index-Do0TROVz.js"></script>
-  <link rel="stylesheet" crossorigin href="/waikiki/assets/index-CaAXc16x.css">
+  <script type="module" crossorigin src="/waikiki/assets/index-7mk9Bkfo.js"></script>
+  <link rel="stylesheet" crossorigin href="/waikiki/assets/index-DDcQWlDK.css">
 </head>
 <body>
   <main id="experience" aria-label="Interactive Waikīkī beach">
@@ -27,6 +27,7 @@
         <select id="viewpoint">
           <option value="" disabled>Choose a viewpoint</option>
           <option value="overview" selected>Beach Overview</option>
+          <option value="walk">Beach Walk</option>
         </select>
         <button id="explore" aria-controls="shortcuts" aria-expanded="false">Explore</button>
       </div>
@@ -44,7 +45,14 @@
       </nav>
       <p id="fruit-receipt" role="status" hidden></p>
       <p id="snack-receipt" role="status" hidden></p>
-      <p id="hint">Drag for 360-degree views. Scroll to zoom.</p>
+      <div class="camera-tools">
+        <p id="hint">Drag to look around. Scroll to zoom.</p>
+        <button id="walk" type="button">Walk around</button>
+        <div id="zoom" role="group" aria-label="Camera zoom">
+          <button id="zoom-in" type="button" aria-label="Zoom in">+</button>
+          <button id="zoom-out" type="button" aria-label="Zoom out">−</button>
+        </div>
+      </div>
       <button id="back" hidden>Back to Overview <kbd>Esc</kbd></button>
     </aside>
     <dialog id="snack-menu" aria-labelledby="snack-title">
@@ -66,16 +74,25 @@
       <ul id="fruit-items" aria-label="Fruit menu"></ul>
       <footer>
         <p id="fruit-total" role="status"></p>
+        <button id="fruit-display" type="button" disabled>Display on counter</button>
         <button id="fruit-order" disabled>Place simulated order</button>
       </footer>
     </dialog>
-    <div id="dive-pad" role="group" aria-label="Swimming controls" hidden>
+    <div id="dive-pad" class="movement-pad" role="group" aria-label="Swimming controls" hidden>
       <button data-swim="KeyW" aria-label="Swim forward"><span class="swim-arrow" aria-hidden="true"></span></button>
       <button data-swim="KeyA" aria-label="Swim left"><span class="swim-arrow" aria-hidden="true"></span></button>
       <button data-swim="KeyS" aria-label="Swim backward"><span class="swim-arrow" aria-hidden="true"></span></button>
       <button data-swim="KeyD" aria-label="Swim right"><span class="swim-arrow" aria-hidden="true"></span></button>
       <button data-swim="KeyQ">Dive</button>
       <button data-swim="KeyE">Rise</button>
+    </div>
+    <div id="walk-pad" class="movement-pad" role="group" aria-label="Walking controls" hidden>
+      <button type="button" data-walk="KeyW" aria-label="Walk forward"><span class="swim-arrow" aria-hidden="true"></span></button>
+      <button type="button" data-walk="KeyA" aria-label="Walk left"><span class="swim-arrow" aria-hidden="true"></span></button>
+      <button type="button" data-walk="KeyS" aria-label="Walk backward"><span class="swim-arrow" aria-hidden="true"></span></button>
+      <button type="button" data-walk="KeyD" aria-label="Walk right"><span class="swim-arrow" aria-hidden="true"></span></button>
+      <button type="button" data-walk="KeyQ">Descend</button>
+      <button type="button" data-walk="KeyE">Rise</button>
     </div>
     <div id="markers" aria-hidden="true"></div>
     <p id="loading" class="scene-message" role="status">Loading Waikīkī Beach…</p>

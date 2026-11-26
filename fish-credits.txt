@@ -1,0 +1,10 @@
+Clown Fish Low Poly Animated by Denys Almaral
+https://sketchfab.com/denysalmaral
+https://sketchfab.com/3d-models/clown-fish-low-poly-animated-af7ba2aa41d2413098a59b21cfda79c2
+Licensed under CC BY 4.0
+https://creativecommons.org/licenses/by/4.0/
+
+Model obtained from RippleAquarium
+https://github.com/SeanWong17/RippleAquarium/blob/main/src/fish/models/clownFish.glb
+
+The GLB is unmodified. Waikiki Surf Club scales and positions the model in its reef and plays its included swim animation.
